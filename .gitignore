@@ -1,6 +1,2 @@
 Cargo.lock
-*.csr
-*.key
-*.pub
-*.crt
 /target
