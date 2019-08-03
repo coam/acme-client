@@ -4,7 +4,7 @@ use std::io::Read;
 use openssl;
 use openssl::pkey::PKey;
 use openssl::rsa::Rsa;
-use openssl::x509::{X509Req, X509Name};
+use openssl::x509::{X509Req, X509Name, X509Ref};
 use openssl::x509::extension::SubjectAlternativeName;
 use openssl::stack::Stack;
 use openssl::hash::MessageDigest;

@@ -19,8 +19,8 @@ pub mod testor;
 //cargo test -- --nocapture
 
 // 调试地址
-const LETSENCRYPT_V1_STAGING_DIRECTORY_URL: &'static str = "https://acme-staging.api.letsencrypt.org/directory";
-const LETSENCRYPT_V2_STAGING_DIRECTORY_URL: &'static str = "https://acme-staging-v02.api.letsencrypt.org/directory";
+const LETS_ENCRYPT_V1_STAGING_DIRECTORY_URL: &'static str = "https://acme-staging.api.letsencrypt.org/directory";
+const LETS_ENCRYPT_V2_STAGING_DIRECTORY_URL: &'static str = "https://acme-staging-v02.api.letsencrypt.org/directory";
 
 #[test]
 fn test_gen_key() {
@@ -51,7 +51,7 @@ fn test_v2_directory() {
 
     assert!(libs::v2::Directory::lets_encrypt().is_ok());
 
-    let dir = libs::v2::Directory::from_url(LETSENCRYPT_V2_STAGING_DIRECTORY_URL).unwrap();
+    let dir = libs::v2::Directory::from_url(LETS_ENCRYPT_V2_STAGING_DIRECTORY_URL).unwrap();
     println!("[###]Directory.newAccount:{:?}", dir.url_for("newAccount").unwrap());
 
     assert!(dir.url_for("newAccount").is_some());
@@ -69,7 +69,7 @@ fn test_v2_directory() {
 #[test]
 #[ignore]
 fn test_v2_account_registration() {
-    let dir = libs::v2::Directory::from_url(LETSENCRYPT_V2_STAGING_DIRECTORY_URL).unwrap();
+    let dir = libs::v2::Directory::from_url(LETS_ENCRYPT_V2_STAGING_DIRECTORY_URL).unwrap();
     assert!(dir.account_registration()
         .email("example@example.org")
         .pkey_from_file("tests/data/user.key")
@@ -82,7 +82,7 @@ fn test_v2_account_registration() {
 fn test_v1_directory() {
     assert!(libs::v1::Directory::lets_encrypt().is_ok());
 
-    let dir = libs::v1::Directory::from_url(LETSENCRYPT_V1_STAGING_DIRECTORY_URL).unwrap();
+    let dir = libs::v1::Directory::from_url(LETS_ENCRYPT_V1_STAGING_DIRECTORY_URL).unwrap();
     assert!(dir.url_for("new-reg").is_some());
     assert!(dir.url_for("new-authz").is_some());
     assert!(dir.url_for("new-cert").is_some());
@@ -97,7 +97,7 @@ fn test_v1_directory() {
 #[test]
 fn test_v1_account_registration() {
     //let _ = env_logger::init();
-    let dir = libs::v1::Directory::from_url(LETSENCRYPT_V1_STAGING_DIRECTORY_URL).unwrap();
+    let dir = libs::v1::Directory::from_url(LETS_ENCRYPT_V1_STAGING_DIRECTORY_URL).unwrap();
     assert!(dir.account_registration()
         .pkey_from_file("tests/data/user.key")
         .unwrap()
@@ -108,7 +108,7 @@ fn test_v1_account_registration() {
 #[test]
 fn test_v1_authorization() {
     let _ = env_logger::init();
-    let account = testor::v1::test_acc(LETSENCRYPT_V1_STAGING_DIRECTORY_URL).unwrap();
+    let account = testor::v1::test_acc(LETS_ENCRYPT_V1_STAGING_DIRECTORY_URL).unwrap();
     let auth = account.authorization("example.com").unwrap();
     assert!(!auth.0.is_empty());
     assert!(auth.get_challenge("http").is_some());
@@ -131,7 +131,7 @@ fn test_v1_authorization() {
 fn test_v1_sign_certificate() {
     use std::env;
     let _ = env_logger::init();
-    let account = testor::v1::test_acc(LETSENCRYPT_V1_STAGING_DIRECTORY_URL).unwrap();
+    let account = testor::v1::test_acc(LETS_ENCRYPT_V1_STAGING_DIRECTORY_URL).unwrap();
     let auth = account
         .authorization(&env::var("TEST_DOMAIN").unwrap())
         .unwrap();

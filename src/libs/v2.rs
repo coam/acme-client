@@ -298,11 +298,11 @@ use serde_json::{Value, from_str, to_string, to_value};
 use serde::Serialize;
 
 /// Default Let's Encrypt directory URL to configure client.
-pub const LETSENCRYPT_DIRECTORY_URL: &'static str = "https://acme-v02.api.letsencrypt.org/directory";
+pub const LETS_ENCRYPT_DIRECTORY_URL: &'static str = "https://acme-v02.api.letsencrypt.org/directory";
 /// Default Let's Encrypt agreement URL used in account registration.
-pub const LETSENCRYPT_AGREEMENT_URL: &'static str = "https://letsencrypt.org/documents/LE-SA-v2.2-November-15-2017.pdf";
+pub const LETS_ENCRYPT_AGREEMENT_URL: &'static str = "https://letsencrypt.org/documents/LE-SA-v2.2-November-15-2017.pdf";
 /// Default Let's Encrypt intermediate certificate URL to chain when needed.
-pub const LETSENCRYPT_INTERMEDIATE_CERT_URL: &'static str = "https://letsencrypt.org/certs/lets-encrypt-x3-cross-signed.pem";
+pub const LETS_ENCRYPT_INTERMEDIATE_CERT_URL: &'static str = "https://letsencrypt.org/certs/lets-encrypt-x3-cross-signed.pem";
 
 /// Default bit lenght for RSA keys and `X509_REQ`
 //const BIT_LENGTH: u32 = 2048;
@@ -376,9 +376,9 @@ pub struct Challenge<'a> {
 
 impl Directory {
     /// Creates a Directory from
-    /// [`LETSENCRYPT_DIRECTORY_URL`](constant.LETSENCRYPT_DIRECTORY_URL.html).
+    /// [`LETS_ENCRYPT_DIRECTORY_URL`](constant.LETS_ENCRYPT_DIRECTORY_URL.html).
     pub fn lets_encrypt() -> Result<Directory> {
-        Directory::from_url(LETSENCRYPT_DIRECTORY_URL)
+        Directory::from_url(LETS_ENCRYPT_DIRECTORY_URL)
     }
 
     /// Creates a Directory from directory URL.
@@ -738,6 +738,18 @@ impl Account {
         Ok(acme_order_auth_list)
     }
 
+    /// Revokes a signed certificate from pem formatted file
+    pub fn get_certificate_from_file<P: AsRef<Path>>(&self, path: P) -> Result<X509> {
+        let content = {
+            let mut file = File::open(path)?;
+            let mut content = Vec::new();
+            file.read_to_end(&mut content)?;
+            content
+        };
+        let cert = X509::from_pem(&content)?;
+        Ok(cert)
+    }
+
     /// Creates a new `CertificateSigner` helper to sign a certificate for list of domains.
     ///
     /// `domains` must be list of the domain names you want to sign a certificate for.
@@ -828,7 +840,7 @@ impl AccountRegistration {
     }
 
     /// Sets agreement url,
-    /// [`LETSENCRYPT_AGREEMENT_URL`](constant.LETSENCRYPT_AGREEMENT_URL.html)
+    /// [`LETS_ENCRYPT_AGREEMENT_URL`](constant.LETS_ENCRYPT_AGREEMENT_URL.html)
     /// will be used during registration if it's not set.
     pub fn agreement(mut self, url: &str) -> AccountRegistration {
         self.agreement = Some(url.to_owned());
@@ -854,7 +866,7 @@ impl AccountRegistration {
         info!("[注册账户:v2]Registering account");
 
         let mut map = HashMap::new();
-        //map.insert("agreement".to_owned(), to_value(self.agreement.unwrap_or(LETSENCRYPT_AGREEMENT_URL.to_owned()))?);
+        //map.insert("agreement".to_owned(), to_value(self.agreement.unwrap_or(LETS_ENCRYPT_AGREEMENT_URL.to_owned()))?);
         map.insert("termsOfServiceAgreed".to_owned(), to_value(true)?);
         if let Some(mut contact) = self.contact {
             //if let Some(email) = self.email {
@@ -875,9 +887,9 @@ impl AccountRegistration {
         info!("[账户注册结果][status: {:?}][resp: {:?}][resp_headers: {:?}]", status, resp, resp_headers);
 
         match status {
-            StatusCode::OK => info!("User successfully registered"),
-            //StatusCode::CREATED => info!("User successfully registered"),
-            //StatusCode::CONFLICT => info!("User already registered"),
+            StatusCode::OK => info!("StatusCode::OK - User successfully registered"),
+            StatusCode::CREATED => info!("StatusCode::CREATED - User successfully registered"),
+            StatusCode::CONFLICT => info!("StatusCode::CONFLICT - User already registered"),
             _ => return Err(ErrorKind::AcmeServerError(resp).into()),
         };
 
@@ -1177,7 +1189,7 @@ impl SignedCertificate {
     /// Saves intermediate certificate to a file
     ///
     /// You can additionally provide intermediate certificate url, by default it will use
-    /// [`LETSENCRYPT_INTERMEDIATE_CERT_URL`](constant.LETSENCRYPT_INTERMEDIATE_CERT_URL.html).
+    /// [`LETS_ENCRYPT_INTERMEDIATE_CERT_URL`](constant.LETS_ENCRYPT_INTERMEDIATE_CERT_URL.html).
     pub fn save_intermediate_certificate<P: AsRef<Path>>(&self, url: Option<&str>, path: P) -> Result<()> {
         let mut file = File::create(path)?;
         self.write_intermediate_certificate(url, &mut file)
@@ -1186,12 +1198,36 @@ impl SignedCertificate {
     /// Saves intermediate certificate and signed certificate to a file
     ///
     /// You can additionally provide intermediate certificate url, by default it will use
-    /// [`LETSENCRYPT_INTERMEDIATE_CERT_URL`](constant.LETSENCRYPT_INTERMEDIATE_CERT_URL.html).
+    /// [`LETS_ENCRYPT_INTERMEDIATE_CERT_URL`](constant.LETS_ENCRYPT_INTERMEDIATE_CERT_URL.html).
     pub fn save_signed_certificate_and_chain<P: AsRef<Path>>(&self, url: Option<&str>, path: P) -> Result<()> {
         let mut file = File::create(path)?;
         self.write_signed_certificate(&mut file)?;
         self.write_intermediate_certificate(url, &mut file)?;
         Ok(())
+    }
+
+    /// Saves root certificate and signed certificate to a file
+    pub fn save_signed_certificate_and_rootchain<P: AsRef<Path>>(&self, url: Option<&str>, dst_ca_path: P, path: P) -> Result<()> {
+        let mut file = File::create(path)?;
+        self.write_signed_certificate(&mut file)?;
+        self.write_intermediate_certificate(url, &mut file)?;
+        self.write_dst_root_ca_x3(dst_ca_path, &mut file)?;
+        Ok(())
+    }
+
+    /// Saves private key used to sign certificate to a file
+    pub fn write_dst_root_ca_x3<W: Write, P: AsRef<Path>>(&self, path: P, writer: &mut W) -> Result<()> {
+        let cert = self.read_dst_root_ca_x3(path)?;
+        writer.write_all(&cert.to_pem()?)?;
+        Ok(())
+    }
+
+    /// Reads PKey from Path.
+    fn read_dst_root_ca_x3<P: AsRef<Path>>(&self, path: P) -> Result<X509> {
+        let mut file = File::open(path)?;
+        let mut content = Vec::new();
+        file.read_to_end(&mut content)?;
+        Ok(X509::from_pem(&content)?)
     }
 
     /// Saves private key used to sign certificate to a file
@@ -1215,7 +1251,7 @@ impl SignedCertificate {
     /// Writes intermediate certificate to writer.
     ///
     /// You can additionally provide intermediate certificate url, by default it will use
-    /// [`LETSENCRYPT_INTERMEDIATE_CERT_URL`](constant.LETSENCRYPT_INTERMEDIATE_CERT_URL.html).
+    /// [`LETS_ENCRYPT_INTERMEDIATE_CERT_URL`](constant.LETS_ENCRYPT_INTERMEDIATE_CERT_URL.html).
     pub fn write_intermediate_certificate<W: Write>(&self, url: Option<&str>, writer: &mut W) -> Result<()> {
         let cert = self.get_intermediate_certificate(url)?;
         writer.write_all(&cert.to_pem()?)?;
@@ -1224,12 +1260,12 @@ impl SignedCertificate {
 
     /// Gets intermediate certificate from url.
     ///
-    /// [`LETSENCRYPT_INTERMEDIATE_CERT_URL`](constant.LETSENCRYPT_INTERMEDIATE_CERT_URL.html).
+    /// [`LETS_ENCRYPT_INTERMEDIATE_CERT_URL`](constant.LETS_ENCRYPT_INTERMEDIATE_CERT_URL.html).
     /// will be used if url is None.
     fn get_intermediate_certificate(&self, url: Option<&str>) -> Result<X509> {
         let client = Client::new();
         let mut res = client
-            .get(url.unwrap_or(LETSENCRYPT_INTERMEDIATE_CERT_URL))
+            .get(url.unwrap_or(LETS_ENCRYPT_INTERMEDIATE_CERT_URL))
             .send()?;
         let mut content = Vec::new();
         res.read_to_end(&mut content)?;
@@ -1412,7 +1448,7 @@ impl<'a> Challenge<'a> {
                     resp.read_to_string(&mut res_content)?;
                     from_str(&res_content)?
                 };
-                info!("[challenge validate resp][res_json: {}]",res_json);
+                info!("[challenge validate resp][res_json: {}]", res_json);
             } else if status == "valid" {
                 return Ok(());
             } else if status == "invalid" {

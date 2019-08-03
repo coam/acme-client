@@ -50,7 +50,7 @@ acme-client (0.5.0)
 acme-client (0.4.5)
 
   [LIB]
-  * Update LETSENCRYPT_AGREEMENT_URL.
+  * Update LETS_ENCRYPT_AGREEMENT_URL.
 
  -- Onur Aslan <onur@onur.im>  Sun Nov 19 15:55:23 2017 +0300
 

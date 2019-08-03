@@ -291,11 +291,11 @@ use serde_json::{Value, from_str, to_string, to_value};
 use serde::Serialize;
 
 /// Default Let's Encrypt directory URL to configure client.
-pub const LETSENCRYPT_DIRECTORY_URL: &'static str = "https://acme-v01.api.letsencrypt.org/directory";
+pub const LETS_ENCRYPT_DIRECTORY_URL: &'static str = "https://acme-v01.api.letsencrypt.org/directory";
 /// Default Let's Encrypt agreement URL used in account registration.
-pub const LETSENCRYPT_AGREEMENT_URL: &'static str = "https://letsencrypt.org/documents/LE-SA-v1.2-November-15-2017.pdf";
+pub const LETS_ENCRYPT_AGREEMENT_URL: &'static str = "https://letsencrypt.org/documents/LE-SA-v1.2-November-15-2017.pdf";
 /// Default Let's Encrypt intermediate certificate URL to chain when needed.
-pub const LETSENCRYPT_INTERMEDIATE_CERT_URL: &'static str = "https://letsencrypt.org/certs/lets-encrypt-x3-cross-signed.pem";
+pub const LETS_ENCRYPT_INTERMEDIATE_CERT_URL: &'static str = "https://letsencrypt.org/certs/lets-encrypt-x3-cross-signed.pem";
 
 /// Default bit lenght for RSA keys and `X509_REQ`
 //const BIT_LENGTH: u32 = 2048;
@@ -369,9 +369,9 @@ pub struct Challenge<'a> {
 
 impl Directory {
     /// Creates a Directory from
-    /// [`LETSENCRYPT_DIRECTORY_URL`](constant.LETSENCRYPT_DIRECTORY_URL.html).
+    /// [`LETS_ENCRYPT_DIRECTORY_URL`](constant.LETS_ENCRYPT_DIRECTORY_URL.html).
     pub fn lets_encrypt() -> Result<Directory> {
-        Directory::from_url(LETSENCRYPT_DIRECTORY_URL)
+        Directory::from_url(LETS_ENCRYPT_DIRECTORY_URL)
     }
 
     /// Creates a Directory from directory URL.
@@ -675,7 +675,7 @@ impl AccountRegistration {
     }
 
     /// Sets agreement url,
-    /// [`LETSENCRYPT_AGREEMENT_URL`](constant.LETSENCRYPT_AGREEMENT_URL.html)
+    /// [`LETS_ENCRYPT_AGREEMENT_URL`](constant.LETS_ENCRYPT_AGREEMENT_URL.html)
     /// will be used during registration if it's not set.
     pub fn agreement(mut self, url: &str) -> AccountRegistration {
         self.agreement = Some(url.to_owned());
@@ -702,7 +702,7 @@ impl AccountRegistration {
         let mut map = HashMap::new();
         map.insert("agreement".to_owned(),
                    to_value(self.agreement
-                       .unwrap_or(LETSENCRYPT_AGREEMENT_URL.to_owned()))?);
+                       .unwrap_or(LETS_ENCRYPT_AGREEMENT_URL.to_owned()))?);
         if let Some(mut contact) = self.contact {
             if let Some(email) = self.email {
                 contact.push(format!("mailto:{}", email));
@@ -821,7 +821,7 @@ impl SignedCertificate {
     /// Saves intermediate certificate to a file
     ///
     /// You can additionally provide intermediate certificate url, by default it will use
-    /// [`LETSENCRYPT_INTERMEDIATE_CERT_URL`](constant.LETSENCRYPT_INTERMEDIATE_CERT_URL.html).
+    /// [`LETS_ENCRYPT_INTERMEDIATE_CERT_URL`](constant.LETS_ENCRYPT_INTERMEDIATE_CERT_URL.html).
     pub fn save_intermediate_certificate<P: AsRef<Path>>(&self,
                                                          url: Option<&str>,
                                                          path: P)
@@ -833,7 +833,7 @@ impl SignedCertificate {
     /// Saves intermediate certificate and signed certificate to a file
     ///
     /// You can additionally provide intermediate certificate url, by default it will use
-    /// [`LETSENCRYPT_INTERMEDIATE_CERT_URL`](constant.LETSENCRYPT_INTERMEDIATE_CERT_URL.html).
+    /// [`LETS_ENCRYPT_INTERMEDIATE_CERT_URL`](constant.LETS_ENCRYPT_INTERMEDIATE_CERT_URL.html).
     pub fn save_signed_certificate_and_chain<P: AsRef<Path>>(&self,
                                                              url: Option<&str>,
                                                              path: P)
@@ -865,7 +865,7 @@ impl SignedCertificate {
     /// Writes intermediate certificate to writer.
     ///
     /// You can additionally provide intermediate certificate url, by default it will use
-    /// [`LETSENCRYPT_INTERMEDIATE_CERT_URL`](constant.LETSENCRYPT_INTERMEDIATE_CERT_URL.html).
+    /// [`LETS_ENCRYPT_INTERMEDIATE_CERT_URL`](constant.LETS_ENCRYPT_INTERMEDIATE_CERT_URL.html).
     pub fn write_intermediate_certificate<W: Write>(&self,
                                                     url: Option<&str>,
                                                     writer: &mut W)
@@ -877,12 +877,12 @@ impl SignedCertificate {
 
     /// Gets intermediate certificate from url.
     ///
-    /// [`LETSENCRYPT_INTERMEDIATE_CERT_URL`](constant.LETSENCRYPT_INTERMEDIATE_CERT_URL.html).
+    /// [`LETS_ENCRYPT_INTERMEDIATE_CERT_URL`](constant.LETS_ENCRYPT_INTERMEDIATE_CERT_URL.html).
     /// will be used if url is None.
     fn get_intermediate_certificate(&self, url: Option<&str>) -> Result<X509> {
         let client = Client::new();
         let mut res = client
-            .get(url.unwrap_or(LETSENCRYPT_INTERMEDIATE_CERT_URL))
+            .get(url.unwrap_or(LETS_ENCRYPT_INTERMEDIATE_CERT_URL))
             .send()?;
         let mut content = Vec::new();
         res.read_to_end(&mut content)?;
