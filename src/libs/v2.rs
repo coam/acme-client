@@ -403,7 +403,7 @@ impl Directory {
         //env_logger::init();
         //pretty_env_logger::init();
 
-        info!("[域名证书测试:][ACME][from_url()][url: {:?}]", url);
+        info!("[签发域名证书环境][ACME][from_url()][LETS_ENCRYPT_DIRECTORY_URL][url: {:?}]", url);
 
         let client = Client::new();
         let mut res = client.get(url).send()?;
@@ -478,7 +478,7 @@ impl Directory {
         //let resource_json: Value = to_value(resource)?;
         //json.as_object_mut().and_then(|obj| obj.insert("resource".to_owned(), resource_json));
 
-        info!("[发送请求->request()][resource: {:?}][json: {:?}]", resource, json);
+        debug!("[发起请求->request()][resource: {:?}][json: {:?}]", resource, json);
 
         // 获取请求的url
         let url = self.url_for(resource).ok_or(format!("URL for resource: {} not found", resource))?;
@@ -486,7 +486,7 @@ impl Directory {
         // 获取 jws
         let jws = self.jws(url, pkey, json, kid)?;
 
-        info!("[发送请求->request()][url: {:?}][jws: {:?}]", url, jws);
+        debug!("[发起请求->request()][url: {:?}][jws: {:?}]", url, jws);
 
         // 添加 [application/jose+json] 请求头
         let mut headers = HeaderMap::new();
@@ -538,8 +538,8 @@ impl Directory {
         //data.insert("header".to_owned(), to_value(&header)?);
 
         let mut json = to_value(&payload)?;
-        info!("[发送请求->request()->jws()][payload: {:?}]", json);
-        info!("[发送请求->request()->jws()][protected=>header: {:?}]", header);
+        debug!("[发起请求->request()->jws()][payload: {:?}]", json);
+        debug!("[发起请求->request()->jws()][protected=>header: {:?}]", header);
 
         // payload: b64 of payload
         let payload = to_string(&payload)?;
@@ -557,7 +557,7 @@ impl Directory {
             to_value(b64(&signer.sign_to_vec()?))?
         });
 
-        info!("[发送请求->request()->jws()][data: {:?}]", data);
+        debug!("[发起请求->request()->jws()][data: {:?}]", data);
 
         let json_str = to_string(&data)?;
         Ok(json_str)
@@ -863,7 +863,7 @@ impl AccountRegistration {
     ///
     /// A PKey will be generated if it doesn't exists.
     pub fn register(self) -> Result<Account> {
-        info!("[注册账户:v2]Registering account");
+        debug!("[发起注册账户请求:v2]Registering account");
 
         let mut map = HashMap::new();
         //map.insert("agreement".to_owned(), to_value(self.agreement.unwrap_or(LETS_ENCRYPT_AGREEMENT_URL.to_owned()))?);
@@ -884,7 +884,7 @@ impl AccountRegistration {
 
         let (status, resp, resp_headers) = self.directory.request(&pkey, "newAccount", map, None)?;
 
-        info!("[账户注册结果][status: {:?}][resp: {:?}][resp_headers: {:?}]", status, resp, resp_headers);
+        info!("[请求账户注册结果][status: {:?}][resp: {:?}][resp_headers: {:?}]", status, resp, resp_headers);
 
         match status {
             StatusCode::OK => info!("StatusCode::OK - User successfully registered"),
@@ -1404,7 +1404,7 @@ impl<'a> Challenge<'a> {
         //headers.set(ContentType::json());
         headers.insert(reqwest::header::CONTENT_TYPE, "application/jose+json".parse().unwrap());
 
-        // 发送请求...
+        // 发起请求...
         let client = Client::new();
         //let mut resp = client.post(&self.url).body(&payload[..]).send()?;
         let mut resp = client

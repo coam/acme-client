@@ -698,7 +698,8 @@ impl AccountRegistration {
     ///
     /// A PKey will be generated if it doesn't exists.
     pub fn register(self) -> Result<Account> {
-        info!("[注册账户:v1]Registering account");
+        debug!("[发起注册账户请求:v1]Registering account");
+
         let mut map = HashMap::new();
         map.insert("agreement".to_owned(),
                    to_value(self.agreement
