@@ -662,6 +662,12 @@ impl Account {
                 let types = auth_challenge.types.clone();
                 let url = auth_challenge.url.clone();
 
+                // 跳过非 [dns-01] 验证
+                if types == "dns-01" {
+                    debug!("[跳过非 dns-01 挑战验证][types: {:?}]", types);
+                    continue;
+                }
+
                 // This seems really cryptic but it's not
                 // https://tools.ietf.org/html/draft-ietf-acme-acme-05#section-7.1
                 // key-authz = token || '.' || base64url(JWK\_Thumbprint(accountKey))
@@ -678,7 +684,7 @@ impl Account {
                     key_authorization: key_authorization.clone(),
                 };
                 let auth_challenge_token = challenge.signature().unwrap();
-                info!("authorization challenge info: [thumbprint: {:?}][key_authorization: {:?}][auth_challenge_token: {:?}]", thumbprint, key_authorization, auth_challenge_token);
+                info!("[域名挑战验证签名 `dns-01` TXT解析值] authorization challenge info: [auth_challenge_token: {:?}][thumbprint: {:?}][key_authorization: {:?}]", auth_challenge_token, thumbprint, key_authorization);
 
                 // 保存授权...
                 auth_challenge.key_authorization = Some(key_authorization);
@@ -1084,8 +1090,7 @@ impl<'a> CertificateSigner<'a> {
         // 发起请求...
         let client = Client::new();
         //let jws = self.account.directory().jws(finalize_url, self.account.pkey(), map, Some(self.account.account_url.clone()))?
-        let mut res = client
-            .post(finalize_url)
+        let mut res = client.post(finalize_url)
             .headers(headers)
             //.body(&jws[..])
             //.body(jws)
@@ -1356,8 +1361,7 @@ impl<'a> Challenge<'a> {
     /// This value is used for verification of domain over DNS. Signature must be saved
     /// as a TXT record for `_acme_challenge.example.com`.
     pub fn signature(&self) -> Result<String> {
-        Ok(b64(&hash(MessageDigest::sha256(),
-                     &self.key_authorization.clone().into_bytes())?))
+        Ok(b64(&hash(MessageDigest::sha256(), &self.key_authorization.clone().into_bytes())?))
     }
 
     /// Returns challenge type, usually `http-01` or `dns-01` for Let's Encrypt.
