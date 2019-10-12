@@ -610,7 +610,7 @@ impl Account {
     /// Creates a new identifier authorization object for domain
     //pub fn get_acme_order_authorization<'a>(&'a self, order: &OrderData) -> Result<Authorization<'a>> {
     pub fn get_acme_order_authorization(&self, order: &OrderData) -> Result<Vec<AccountAuthData>> {
-        info!("Sending authorization request for order: {:?}", order);
+        info!("[循环验证 ACME 订单] -> Sending authorization request for order: {:?}", order);
         //info!("Sending identifier authorization request for {}", domain);
 
 
@@ -635,7 +635,8 @@ impl Account {
 
         // 循环授权验证...
         for authorization in &order.authorizations {
-            info!("\n\n\nFor send authorization request for [authorization: {:?}]", authorization);
+            println!("\n");
+            info!("[开始发起 ACME 订单验证挑战] -> For send authorization request for [authorization: {:?}]", authorization);
 
             // 发起授权验证...
             let client = Client::new();
@@ -646,12 +647,12 @@ impl Account {
             // copy the response body directly to stdout
             //std::io::copy(&mut resp, &mut std::io::stdout())?;
 
-            info!("[####################][+++][status: {:?}]", resp.status());
-            info!("[####################][+++]Headers:\n{:?}", resp.headers());
-            info!("[####################][+++]resp: \n{:?}", resp);
+            debug!("[####################][+++][status: {:?}]", resp.status());
+            debug!("[####################][+++]Headers:\n{:?}", resp.headers());
+            debug!("[####################][+++]resp: \n{:?}", resp);
 
             let mut account_auth_data: AccountAuthData = resp.json()?;
-            info!("[####################][+++]resp.account_auth_data: \n{:?}", account_auth_data);
+            debug!("[####################][+++]resp.account_auth_data: \n{:?}", account_auth_data);
 
             // 循环挑战...
             for auth_challenge in &mut account_auth_data.challenges {
@@ -666,8 +667,8 @@ impl Account {
                 let thumbprint = b64(&hash(MessageDigest::sha256(), &to_string(&self.directory().jwk(self.pkey())?)?.into_bytes())?);
                 let key_authorization = format!("{}.{}", auth_challenge.token, thumbprint);
                 //let challenge_token = b64(&hash(MessageDigest::sha256(), key_authorization.as_bytes())?);
-                info!("authorization info: [thumbprint: {:?}]", thumbprint);
-                info!("authorization info: [key_authorization: {:?}]", key_authorization);
+                debug!("authorization challenge info: [thumbprint: {:?}]", thumbprint);
+                debug!("authorization challenge info: [key_authorization: {:?}]", key_authorization);
 
                 // 获取挑战签名...
                 let challenge = Challenge {
@@ -678,7 +679,7 @@ impl Account {
                     key_authorization: key_authorization.clone(),
                 };
                 let auth_challenge_token = challenge.signature().unwrap();
-                info!("authorization info: [auth_challenge_token: {:?}]", auth_challenge_token);
+                debug!("authorization challenge info: [auth_challenge_token: {:?}]", auth_challenge_token);
 
                 // 保存授权...
                 auth_challenge.key_authorization = Some(key_authorization);
@@ -693,7 +694,7 @@ impl Account {
             //info!("authorization request Results: [status: {:?}]", status);
         }
 
-        //        for challenge in resp.as_object()
+//        for challenge in resp.as_object()
 //            .and_then(|obj| obj.get("challenges"))
 //            .and_then(|c| c.as_array())
 //            .ok_or("No challenge found")? {
@@ -863,7 +864,7 @@ impl AccountRegistration {
     ///
     /// A PKey will be generated if it doesn't exists.
     pub fn register(self) -> Result<Account> {
-        debug!("[发起注册账户请求:v2]Registering account");
+        debug!("[发起注册账户流程:v2]Registering account");
 
         let mut map = HashMap::new();
         //map.insert("agreement".to_owned(), to_value(self.agreement.unwrap_or(LETS_ENCRYPT_AGREEMENT_URL.to_owned()))?);
@@ -878,18 +879,18 @@ impl AccountRegistration {
             map.insert("email".to_owned(), to_value(email)?);
         }
 
-        info!("[发送账户注册参数][resources: newAccount][map: {:?}]", map);
+        info!("[发送账户注册请求参数][resources: newAccount][map: {:?}]", map);
 
         let pkey = self.pkey.unwrap_or(gen_key()?);
 
         let (status, resp, resp_headers) = self.directory.request(&pkey, "newAccount", map, None)?;
 
-        info!("[请求账户注册结果][status: {:?}][resp: {:?}][resp_headers: {:?}]", status, resp, resp_headers);
+        debug!("[请求账户注册结果][status: {:?}][resp: {:?}][resp_headers: {:?}]", status, resp, resp_headers);
 
         match status {
-            StatusCode::OK => info!("StatusCode::OK - User successfully registered"),
-            StatusCode::CREATED => info!("StatusCode::CREATED - User successfully registered"),
-            StatusCode::CONFLICT => info!("StatusCode::CONFLICT - User already registered"),
+            StatusCode::OK => info!("[账户注册成功] -> StatusCode::OK - User successfully registered!"),
+            StatusCode::CREATED => info!("[账户注册成功] -> StatusCode::CREATED - User successfully registered!"),
+            StatusCode::CONFLICT => info!("[账户注册成功] -> StatusCode::CONFLICT - User already registered!"),
             _ => return Err(ErrorKind::AcmeServerError(resp).into()),
         };
 
@@ -953,7 +954,8 @@ impl OrderCreator {
     ///
     /// A PKey will be generated if it doesn't exists.
     pub fn create(self, account: &Account) -> Result<OrderData> {
-        println!("[创建订单]Creating order");
+        info!("[执行创建订单流程]Creating order");
+
         let mut map = HashMap::new();
 
         // 创建订单域名...
@@ -975,18 +977,18 @@ impl OrderCreator {
         // Convert the Point to a JSON string.
         //let serialized = serde_json::to_string(&self.order_identifiers).unwrap();
 
-        info!("[发送创建订单参数][resources: createOrder][map: {:?}]", map);
+        info!("[发起创建订单请求参数][resources: createOrder][map: {:?}]", map);
 
         let pkey = &account.pkey;
         let account_url = &account.account_url;
 
         let (status, resp, resp_headers) = account.directory().request(&pkey, "newOrder", map, Some(account_url.clone()))?;
 
-        info!("[创建订单结果][status: {:?}][resp: {:?}][resp_headers: {:?}]", status, resp, resp_headers);
+        debug!("[创建订单请求结果][status: {:?}][resp: {:?}][resp_headers: {:?}]", status, resp, resp_headers);
 
         match status {
-            StatusCode::OK => info!("Order successfully ok"),
-            StatusCode::CREATED => info!("Order successfully created"),
+            StatusCode::OK => info!("[订单创建成功] -> Order successfully ok"),
+            StatusCode::CREATED => info!("[订单创建成功] -> Order successfully created"),
             _ => return Err(ErrorKind::AcmeServerError(resp).into()),
         };
 
@@ -1072,8 +1074,8 @@ impl<'a> CertificateSigner<'a> {
             self.account.directory().jws(finalize_url, self.account.pkey(), map.clone(), Some(self.account.account_url.clone()))?
         };
 
-        info!("[COAM][####################][+++][finalize_url: {}]", finalize_url);
-        info!("[COAM][####################][+++][payload: {}]", payload);
+        debug!("[COAM][####################][+++][finalize_url: {}]", finalize_url);
+        debug!("[COAM][####################][+++][payload: {}]", payload);
 
         // 添加 [application/jose+json] 请求头
         let mut headers = HeaderMap::new();
@@ -1100,7 +1102,7 @@ impl<'a> CertificateSigner<'a> {
         //std::io::copy(&mut res, &mut std::io::stdout())?;
 
         let mut order_response: OrderResponse = res.json()?;
-        info!("[####################][+++]res.order_response: \n{:?}", order_response);
+        debug!("[####################][+++]res.order_response: \n{:?}", order_response);
 
         // 判断是否经过验证...
         if order_response.status != "valid" {
@@ -1111,9 +1113,9 @@ impl<'a> CertificateSigner<'a> {
         // copy the response body directly to stdout
         //std::io::copy(&mut res, &mut std::io::stdout())?;
 
-        info!("[####################][---][status: {:?}]", res.status());
-        info!("[####################][---]Headers:\n{:?}", res.headers());
-        info!("[####################][---]res: \n{:?}", res);
+        debug!("[####################][---][status: {:?}]", res.status());
+        debug!("[####################][---]Headers:\n{:?}", res.headers());
+        debug!("[####################][---]res: \n{:?}", res);
 
         // 复制证书...
         order.certificate = order_response.certificate;
@@ -1125,25 +1127,26 @@ impl<'a> CertificateSigner<'a> {
     ///
     /// CSR and PKey will be generated if it doesn't set or loaded first.
     pub fn sign_certificate(self, order: &OrderData) -> Result<SignedCertificate> {
-        info!("Signing certificate");
+        info!("[验证订单签发证书流程] -> Signing certificate");
 
         // 判断是否经过验证...
         if let Some(certificate_url) = order.certificate.clone() {
-            info!("验证验证通过-可签发证书!");
+            debug!("订单域名验证通过-可请求签发证书!");
         } else {
             panic!("未获取证书文件地址-无法签发证书!");
         }
 
-        info!("get certificate...");
+        debug!("[请求签发订单域名证书] get certificate...");
+
         let certificate_url = order.certificate.clone().unwrap();
 
         // 发起请求...
         let client = Client::new();
         let mut res = client.get(certificate_url.as_str()).send()?;
 
-        info!("[####################][---][status: {:?}]", res.status());
-        info!("[####################][---]Headers:\n{:?}", res.headers());
-        info!("[####################][---]res: \n{:?}", res);
+        debug!("[####################][---][status: {:?}]", res.status());
+        debug!("[####################][---]Headers:\n{:?}", res.headers());
+        debug!("[####################][---]res: \n{:?}", res);
 
         // [How do you make a GET request in Rust?](https://stackoverflow.com/questions/43222429/how-do-you-make-a-get-request-in-rust)
         // copy the response body directly to stdout
@@ -1169,7 +1172,8 @@ impl<'a> CertificateSigner<'a> {
         //let cert = X509::from_der(&crt_der)?;
         let cert = X509::from_pem(&crt_der)?;
 
-        info!("Certificate successfully signed........................................................................................");
+        info!("[域名证书签发成功]Certificate successfully signed........................................................................................");
+
         Ok(SignedCertificate {
             cert: cert,
             csr: self.csr.unwrap(),
@@ -1374,14 +1378,14 @@ impl<'a> Challenge<'a> {
 
     /// Triggers validation.
     pub fn validate(&self) -> Result<()> {
-        info!("Triggering {} validation", self.ctype);
+        info!("[挑战验证] -> Triggering {} validation", self.ctype);
 
         // 获取请求的url
         //let url = self.url_for(resource).ok_or(format!("URL for resource: {} not found", resource))?;
 
         // 获取挑战签名...
         let challenge_token = self.signature().unwrap();
-        info!("validate info: [challenge_token: {:?}]", challenge_token);
+        debug!("validate info: [challenge_token: {:?}]", challenge_token);
 
         let payload = {
             let map = {
@@ -1396,8 +1400,8 @@ impl<'a> Challenge<'a> {
             self.account.directory().jws(&self.url, self.account.pkey(), map, Some(self.account.account_url.clone()))?
         };
 
-        info!("[COAM][####################][+++][&self.url: {}]", &self.url);
-        info!("[COAM][####################][+++][payload: {}]", payload);
+        debug!("[COAM][####################][+++][&self.url: {}]", &self.url);
+        debug!("[COAM][####################][+++][payload: {}]", payload);
 
         // 添加 [application/jose+json] 请求头
         let mut headers = HeaderMap::new();
@@ -1419,13 +1423,12 @@ impl<'a> Challenge<'a> {
             from_str(&res_content)?
         };
 
-        info!("[COAM][####################][+++][res_json: {}]", res_json);
-        info!("[COAM][####################][+++][status: {}]", resp.status());
+        debug!("[COAM][####################][+++][res_json: {}]", res_json);
+        debug!("[COAM][####################][+++][status: {}]", resp.status());
 
         if resp.status() != StatusCode::OK {
-            info!("[###][####################][---][res_json: {}]", res_json);
-            info!("[###][####################][---][status: {}]", resp.status());
-
+            debug!("[###][####################][---][res_json: {}]", res_json);
+            debug!("[###][####################][---][status: {}]", resp.status());
             return Err(ErrorKind::AcmeServerError(res_json).into());
         }
 
@@ -1437,19 +1440,21 @@ impl<'a> Challenge<'a> {
                 .ok_or("Status not found")?
                 .to_owned();
 
-            info!("[COAM][####################][LOOP][res_json: {}]", res_json);
-            info!("[COAM][####################][LOOP][status: {}]", status);
+            debug!("[COAM][####################][LOOP][res_json: {}]", res_json);
+            debug!("[COAM][####################][LOOP][status: {}]", status);
 
             if status == "pending" {
-                info!("Status is pending, trying again...");
+                debug!("Status is pending, trying again...");
                 let mut resp = client.get(&self.url).send()?;
                 res_json = {
                     let mut res_content = String::new();
                     resp.read_to_string(&mut res_content)?;
                     from_str(&res_content)?
                 };
-                info!("[challenge validate resp][res_json: {}]", res_json);
+
+                debug!("[challenge validate resp][res_json: {}]", res_json);
             } else if status == "valid" {
+                info!("[挑战验证成功] -> Status is valid, trying next...");
                 return Ok(());
             } else if status == "invalid" {
                 return Err(ErrorKind::AcmeServerError(res_json).into());

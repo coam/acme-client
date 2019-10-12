@@ -698,7 +698,7 @@ impl AccountRegistration {
     ///
     /// A PKey will be generated if it doesn't exists.
     pub fn register(self) -> Result<Account> {
-        debug!("[发起注册账户请求:v1]Registering account");
+        debug!("[发起注册账户流程:v1]Registering account");
 
         let mut map = HashMap::new();
         map.insert("agreement".to_owned(),
@@ -987,7 +987,8 @@ impl<'a> Challenge<'a> {
 
     /// Triggers validation.
     pub fn validate(&self) -> Result<()> {
-        info!("Triggering {} validation", self.ctype);
+        info!("[挑战验证] -> Triggering {} validation", self.ctype);
+
         let payload = {
             let map = {
                 let mut map: HashMap<String, Value> = HashMap::new();
@@ -1016,7 +1017,6 @@ impl<'a> Challenge<'a> {
         if resp.status() != StatusCode::ACCEPTED {
             println!("[###][####################][---][res_json: {}]", res_json);
             println!("[###][####################][---][status: {}]", resp.status());
-
             return Err(ErrorKind::AcmeServerError(res_json).into());
         }
 
