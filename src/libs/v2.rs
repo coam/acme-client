@@ -663,8 +663,8 @@ impl Account {
                 let url = auth_challenge.url.clone();
 
                 // 跳过非 [dns-01] 验证
-                if types == "dns-01" {
-                    debug!("[跳过非 dns-01 挑战验证][types: {:?}]", types);
+                if types != "dns-01" {
+                    debug!("[跳过非 dns-01 挑战验证][types: {:?}][auth_challenge: {:?}]", types, auth_challenge);
                     continue;
                 }
 
