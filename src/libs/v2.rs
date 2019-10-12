@@ -1427,12 +1427,13 @@ impl<'a> Challenge<'a> {
         debug!("[COAM][####################][+++][status: {}]", resp.status());
 
         if resp.status() != StatusCode::OK {
-            debug!("[###][####################][---][res_json: {}]", res_json);
-            debug!("[###][####################][---][status: {}]", resp.status());
+            error!("[###][####################][---][res_json: {}]", res_json);
+            error!("[###][####################][---][status: {}]", resp.status());
             return Err(ErrorKind::AcmeServerError(res_json).into());
         }
 
         loop {
+            // 验证挑战状态
             let status = res_json
                 .as_object()
                 .and_then(|o| o.get("status"))
@@ -1443,8 +1444,11 @@ impl<'a> Challenge<'a> {
             debug!("[COAM][####################][LOOP][res_json: {}]", res_json);
             debug!("[COAM][####################][LOOP][status: {}]", status);
 
+            // 区分验证状态...
             if status == "pending" {
-                debug!("Status is pending, trying again...");
+                info!("[循环挑战验证状态] -> [challenge validate status: pending], trying again...");
+
+                // 请求结果
                 let mut resp = client.get(&self.url).send()?;
                 res_json = {
                     let mut res_content = String::new();
@@ -1452,14 +1456,16 @@ impl<'a> Challenge<'a> {
                     from_str(&res_content)?
                 };
 
-                debug!("[challenge validate resp][res_json: {}]", res_json);
+                warn!("[challenge validate status: pending][res_json: {}]", res_json);
             } else if status == "valid" {
-                info!("[挑战验证成功] -> Status is valid, trying next...");
+                info!("[循环挑战验证状态] -> [challenge validate status: valid], trying next...");
                 return Ok(());
             } else if status == "invalid" {
+                error!("[循环挑战验证状态] -> [challenge validate status: invalid], trying ended...");
                 return Err(ErrorKind::AcmeServerError(res_json).into());
             }
 
+            // 循环等待验证...
             use std::thread::sleep;
             use std::time::Duration;
             sleep(Duration::from_secs(2));
