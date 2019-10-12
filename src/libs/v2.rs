@@ -613,7 +613,6 @@ impl Account {
         info!("[循环验证 ACME 订单] -> Sending authorization request for order: {:?}", order);
         //info!("Sending identifier authorization request for {}", domain);
 
-
 //        let mut map = HashMap::new();
 //        map.insert("identifier".to_owned(), {
 //            let mut map = HashMap::new();
@@ -641,21 +640,23 @@ impl Account {
             // 发起授权验证...
             let client = Client::new();
             //let mut resp = client.get(authorization).send()?;
-            let mut resp = client.get(authorization).send()?;
+            let mut auth_resp = client.get(authorization).send()?;
 
             // [How do you make a GET request in Rust?](https://stackoverflow.com/questions/43222429/how-do-you-make-a-get-request-in-rust)
             // copy the response body directly to stdout
-            //std::io::copy(&mut resp, &mut std::io::stdout())?;
+            //std::io::copy(&mut auth_resp, &mut std::io::stdout())?;
 
-            debug!("[####################][+++][status: {:?}]", resp.status());
-            debug!("[####################][+++]Headers:\n{:?}", resp.headers());
-            debug!("[####################][+++]resp: \n{:?}", resp);
+            debug!("[####################][+++][status: {:?}]", auth_resp.status());
+            debug!("[####################][+++]Headers:\n{:?}", auth_resp.headers());
+            debug!("[####################][+++]auth_resp: \n{:?}", auth_resp);
 
-            let mut account_auth_data: AccountAuthData = resp.json()?;
-            debug!("[####################][+++]resp.account_auth_data: \n{:?}", account_auth_data);
+            let mut account_auth_data: AccountAuthData = auth_resp.json()?;
+            info!("[账户订单验证挑战][+++]auth_resp.account_auth_data: \n{:?}", account_auth_data);
 
             // 循环挑战...
             for auth_challenge in &mut account_auth_data.challenges {
+                info!("[For: account_auth_data.challenges] auth_challenge info: [auth_challenge: {:?}]", auth_challenge);
+
                 // 获取挑战...
                 let token = auth_challenge.token.clone();
                 let types = auth_challenge.types.clone();
@@ -667,8 +668,6 @@ impl Account {
                 let thumbprint = b64(&hash(MessageDigest::sha256(), &to_string(&self.directory().jwk(self.pkey())?)?.into_bytes())?);
                 let key_authorization = format!("{}.{}", auth_challenge.token, thumbprint);
                 //let challenge_token = b64(&hash(MessageDigest::sha256(), key_authorization.as_bytes())?);
-                debug!("authorization challenge info: [thumbprint: {:?}]", thumbprint);
-                debug!("authorization challenge info: [key_authorization: {:?}]", key_authorization);
 
                 // 获取挑战签名...
                 let challenge = Challenge {
@@ -679,7 +678,7 @@ impl Account {
                     key_authorization: key_authorization.clone(),
                 };
                 let auth_challenge_token = challenge.signature().unwrap();
-                debug!("authorization challenge info: [auth_challenge_token: {:?}]", auth_challenge_token);
+                info!("authorization challenge info: [thumbprint: {:?}][key_authorization: {:?}][auth_challenge_token: {:?}]", thumbprint, key_authorization, auth_challenge_token);
 
                 // 保存授权...
                 auth_challenge.key_authorization = Some(key_authorization);
@@ -690,7 +689,7 @@ impl Account {
             acme_order_auth_list.push(account_auth_data);
 
             //info!("authorization challenge: [challenge: {:?}]", challenge);
-            //let (status, resp, resp_headers) = self.directory().request(self.pkey(), "new-authz", map, None)?;
+            //let (status, auth_resp, resp_headers) = self.directory().request(self.pkey(), "new-authz", map, None)?;
             //info!("authorization request Results: [status: {:?}]", status);
         }
 
