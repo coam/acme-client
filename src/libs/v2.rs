@@ -478,7 +478,7 @@ impl Directory {
         //let resource_json: Value = to_value(resource)?;
         //json.as_object_mut().and_then(|obj| obj.insert("resource".to_owned(), resource_json));
 
-        debug!("[发起请求->request()][resource: {:?}][json: {:?}]", resource, json);
+        trace!("[发起请求->request()][resource: {:?}][json: {:?}]", resource, json);
 
         // 获取请求的url
         let url = self.url_for(resource).ok_or(format!("URL for resource: {} not found", resource))?;
@@ -486,7 +486,7 @@ impl Directory {
         // 获取 jws
         let jws = self.jws(url, pkey, json, kid)?;
 
-        debug!("[发起请求->request()][url: {:?}][jws: {:?}]", url, jws);
+        trace!("[发起请求->request()][url: {:?}][jws: {:?}]", url, jws);
 
         // 添加 [application/jose+json] 请求头
         let mut headers = HeaderMap::new();
@@ -538,8 +538,8 @@ impl Directory {
         //data.insert("header".to_owned(), to_value(&header)?);
 
         let mut json = to_value(&payload)?;
-        debug!("[发起请求->request()->jws()][payload: {:?}]", json);
-        debug!("[发起请求->request()->jws()][protected=>header: {:?}]", header);
+        trace!("[发起请求->request()->jws()][payload: {:?}]", json);
+        trace!("[发起请求->request()->jws()][protected=>header: {:?}]", header);
 
         // payload: b64 of payload
         let payload = to_string(&payload)?;
@@ -557,7 +557,7 @@ impl Directory {
             to_value(b64(&signer.sign_to_vec()?))?
         });
 
-        debug!("[发起请求->request()->jws()][data: {:?}]", data);
+        trace!("[发起请求->request()->jws()][data: {:?}]", data);
 
         let json_str = to_string(&data)?;
         Ok(json_str)
@@ -576,11 +576,21 @@ impl Directory {
 
 // 账户授权响应数据...
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct AccountAuthData {
-    pub identifier: OrderIdentifier,
+pub struct AccountAuthResponse {
     status: String,
     expires: String,
+    pub identifier: OrderIdentifier,
+    // 授权挑战方案列表
     pub challenges: Vec<AccountAuthChallenge>,
+}
+
+// 账户授权数据...
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct AccountAuthData {
+    // 订单身份凭证
+    pub auth_domain_identifier: OrderIdentifier,
+    // DNS-01 授权验证挑战
+    pub auth_dns_challenge: AccountAuthChallenge,
 }
 
 // Challenge 挑战...
@@ -608,8 +618,8 @@ pub struct AccountAuthChallengeValidationRecord {
 
 impl Account {
     /// Creates a new identifier authorization object for domain
-    //pub fn get_acme_order_authorization<'a>(&'a self, order: &OrderData) -> Result<Authorization<'a>> {
-    pub fn get_acme_order_authorization(&self, order: &OrderData) -> Result<Vec<AccountAuthData>> {
+    //pub fn get_acme_order_auth_list<'a>(&'a self, order: &OrderData) -> Result<Authorization<'a>> {
+    pub fn get_acme_order_auth_list(&self, order: &OrderData) -> Result<Vec<AccountAuthData>> {
         info!("[循环验证 ACME 订单] -> Sending authorization request for order: {:?}", order);
         //info!("Sending identifier authorization request for {}", domain);
 
@@ -630,7 +640,7 @@ impl Account {
         //let mut challenges = Vec::new();
 
         // 授权列表...
-        let mut acme_order_auth_list = Vec::new();
+        let mut acme_order_auth_list = Vec::<AccountAuthData>::new();
 
         // 循环授权验证...
         for authorization in &order.authorizations {
@@ -646,115 +656,79 @@ impl Account {
             // copy the response body directly to stdout
             //std::io::copy(&mut auth_resp, &mut std::io::stdout())?;
 
-            debug!("[####################][+++][status: {:?}]", auth_resp.status());
-            debug!("[####################][+++]Headers:\n{:?}", auth_resp.headers());
-            debug!("[####################][+++]auth_resp: \n{:?}", auth_resp);
+            trace!("[####################][+++][status: {:?}]", auth_resp.status());
+            trace!("[####################][+++]Headers:\n{:?}", auth_resp.headers());
+            trace!("[####################][+++]auth_resp: \n{:?}", auth_resp);
 
-            let mut account_auth_data: AccountAuthData = auth_resp.json()?;
-            info!("[账户订单验证挑战][+++]auth_resp.account_auth_data: \n{:?}", account_auth_data);
+            // 获取授权数据...
+            let mut account_auth_response: AccountAuthResponse = auth_resp.json()?;
+            info!("[账户订单验证挑战][+++]auth_resp.account_auth_response: \n{:?}", account_auth_response);
 
-            // 循环挑战...
-            for auth_challenge in &mut account_auth_data.challenges {
-                info!("[For: account_auth_data.challenges] auth_challenge info: [auth_challenge: {:?}]", auth_challenge);
+            // 依次读取授权数据
+            let auth_domain_identifier = account_auth_response.identifier.clone();
+            let account_auth_challenges = account_auth_response.challenges.clone();
+            debug!("[####]循环验证TXT解析数据: auth_domain_identifier: {:?}", auth_domain_identifier);
+            debug!("[####]循环验证TXT解析数据: account_auth_challenges: {:?}", account_auth_challenges);
 
-                // 获取挑战...
-                let token = auth_challenge.token.clone();
-                let types = auth_challenge.types.clone();
-                let url = auth_challenge.url.clone();
-
-                // 跳过非 [dns-01] 验证
-                if types != "dns-01" {
-                    debug!("[跳过非 dns-01 挑战验证][types: {:?}][auth_challenge: {:?}]", types, auth_challenge);
-                    continue;
-                }
-
-                // This seems really cryptic but it's not
-                // https://tools.ietf.org/html/draft-ietf-acme-acme-05#section-7.1
-                // key-authz = token || '.' || base64url(JWK\_Thumbprint(accountKey))
-                let thumbprint = b64(&hash(MessageDigest::sha256(), &to_string(&self.directory().jwk(self.pkey())?)?.into_bytes())?);
-                let key_authorization = format!("{}.{}", auth_challenge.token, thumbprint);
-                //let challenge_token = b64(&hash(MessageDigest::sha256(), key_authorization.as_bytes())?);
-
-                // 获取挑战签名...
-                let challenge = Challenge {
-                    account: self,
-                    ctype: types,
-                    url: url,
-                    token: token,
-                    key_authorization: key_authorization.clone(),
-                };
-                let auth_challenge_token = challenge.signature().unwrap();
-                info!("[域名挑战验证签名 `dns-01` TXT解析值] authorization challenge info: [auth_challenge_token: {:?}][thumbprint: {:?}][key_authorization: {:?}]", auth_challenge_token, thumbprint, key_authorization);
-
-                // 保存授权...
-                auth_challenge.key_authorization = Some(key_authorization);
-                auth_challenge.auth_challenge_token = Some(auth_challenge_token);
+            // 过滤查询 dns-01 挑战...
+            let dns_challenge = account_auth_challenges.iter().find(|challenge| challenge.types == "dns-01");
+            if let Some(challenge) = dns_challenge {
+                info!("[已匹配挑战: dns-01] in challenges: {:?}", challenge);
+            } else {
+                panic!("[未匹配挑战: dns-01] -- Find none [dns-01] in challenges");
             }
+
+            // 获取 [DNS-01] 授权挑战...
+            let mut auth_dns_challenge = dns_challenge.unwrap().clone();
+
+            // 获取挑战...
+            let token = auth_dns_challenge.token.clone();
+            let types = auth_dns_challenge.types.clone();
+            let url = auth_dns_challenge.url.clone();
+
+            // This seems really cryptic but it's not
+            // https://tools.ietf.org/html/draft-ietf-acme-acme-05#section-7.1
+            // key-authz = token || '.' || base64url(JWK\_Thumbprint(accountKey))
+            let thumbprint = b64(&hash(MessageDigest::sha256(), &to_string(&self.directory().jwk(self.pkey())?)?.into_bytes())?);
+            let key_authorization = format!("{}.{}", auth_dns_challenge.token, thumbprint);
+            //let challenge_token = b64(&hash(MessageDigest::sha256(), key_authorization.as_bytes())?);
+
+            // 获取挑战签名...
+            let challenge = Challenge {
+                account: self,
+                ctype: types,
+                url: url,
+                token: token,
+                key_authorization: key_authorization.clone(),
+            };
+            let auth_challenge_token = challenge.signature().unwrap();
+            info!("[域名挑战验证签名 `dns-01` TXT解析值] authorization challenge info: [auth_challenge_token: {:?}][thumbprint: {:?}][key_authorization: {:?}]", auth_challenge_token, thumbprint, key_authorization);
+
+            // 保存授权...
+            auth_dns_challenge.key_authorization = Some(key_authorization);
+            auth_dns_challenge.auth_challenge_token = Some(auth_challenge_token);
+
+            // 授权挑战数据...
+            let account_auth_data = AccountAuthData { auth_domain_identifier, auth_dns_challenge };
 
             // 推入授权列表...
             acme_order_auth_list.push(account_auth_data);
-
-            //info!("authorization challenge: [challenge: {:?}]", challenge);
-            //let (status, auth_resp, resp_headers) = self.directory().request(self.pkey(), "new-authz", map, None)?;
-            //info!("authorization request Results: [status: {:?}]", status);
         }
 
-//        for challenge in resp.as_object()
-//            .and_then(|obj| obj.get("challenges"))
-//            .and_then(|c| c.as_array())
-//            .ok_or("No challenge found")? {
-//            let obj = challenge
-//                .as_object()
-//                .ok_or("Challenge object not found")?;
-//
-//            let ctype = obj.get("type")
-//                .and_then(|t| t.as_str())
-//                .ok_or("Challenge type not found")?
-//                .to_owned();
-//            let uri = obj.get("uri")
-//                .and_then(|t| t.as_str())
-//                .ok_or("URI not found")?
-//                .to_owned();
-//            let token = obj.get("token")
-//                .and_then(|t| t.as_str())
-//                .ok_or("Token not found")?
-//                .to_owned();
-//
-//            // This seems really cryptic but it's not
-//            // https://tools.ietf.org/html/draft-ietf-acme-acme-05#section-7.1
-//            // key-authz = token || '.' || base64url(JWK\_Thumbprint(accountKey))
-//            let key_authorization = format!("{}.{}",
-//                                            token,
-//                                            b64(&hash(MessageDigest::sha256(),
-//                                                      &to_string(&self.directory()
-//                                                          .jwk(self.pkey())?)?
-//                                                          .into_bytes())?));
-//
-//            let challenge = Challenge {
-//                account: self,
-//                ctype: ctype,
-//                url: uri,
-//                token: token,
-//                key_authorization: key_authorization,
-//            };
-//            challenges.push(challenge);
-//        }
-
-        //Ok(Authorization(challenges))
         Ok(acme_order_auth_list)
     }
 
-    /// Revokes a signed certificate from pem formatted file
-    pub fn get_certificate_from_file<P: AsRef<Path>>(&self, path: P) -> Result<X509> {
-        let content = {
-            let mut file = File::open(path)?;
-            let mut content = Vec::new();
-            file.read_to_end(&mut content)?;
-            content
-        };
-        let cert = X509::from_pem(&content)?;
-        Ok(cert)
-    }
+    ///// load a signed certificate from pem formatted file
+    //pub fn get_certificate_from_file<P: AsRef<Path>>(&self, path: P) -> Result<X509> {
+    //    let content = {
+    //        let mut file = File::open(path)?;
+    //        let mut content = Vec::new();
+    //        file.read_to_end(&mut content)?;
+    //        content
+    //    };
+    //    let cert = X509::from_pem(&content)?;
+    //    Ok(cert)
+    //}
 
     /// Creates a new `CertificateSigner` helper to sign a certificate for list of domains.
     ///
@@ -1106,7 +1080,7 @@ impl<'a> CertificateSigner<'a> {
         //std::io::copy(&mut res, &mut std::io::stdout())?;
 
         let mut order_response: OrderResponse = res.json()?;
-        debug!("[####################][+++]res.order_response: \n{:?}", order_response);
+        trace!("[####################][+++]res.order_response: \n{:?}", order_response);
 
         // 判断是否经过验证...
         if order_response.status != "valid" {
@@ -1117,9 +1091,9 @@ impl<'a> CertificateSigner<'a> {
         // copy the response body directly to stdout
         //std::io::copy(&mut res, &mut std::io::stdout())?;
 
-        debug!("[####################][---][status: {:?}]", res.status());
-        debug!("[####################][---]Headers:\n{:?}", res.headers());
-        debug!("[####################][---]res: \n{:?}", res);
+        trace!("[####################][---][status: {:?}]", res.status());
+        trace!("[####################][---]Headers:\n{:?}", res.headers());
+        trace!("[####################][---]res: \n{:?}", res);
 
         // 复制证书...
         order.certificate = order_response.certificate;
@@ -1148,9 +1122,9 @@ impl<'a> CertificateSigner<'a> {
         let client = Client::new();
         let mut res = client.get(certificate_url.as_str()).send()?;
 
-        debug!("[####################][---][status: {:?}]", res.status());
-        debug!("[####################][---]Headers:\n{:?}", res.headers());
-        debug!("[####################][---]res: \n{:?}", res);
+        trace!("[####################][---][status: {:?}]", res.status());
+        trace!("[####################][---]Headers:\n{:?}", res.headers());
+        trace!("[####################][---]res: \n{:?}", res);
 
         // [How do you make a GET request in Rust?](https://stackoverflow.com/questions/43222429/how-do-you-make-a-get-request-in-rust)
         // copy the response body directly to stdout

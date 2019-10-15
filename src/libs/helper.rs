@@ -4,7 +4,7 @@ use std::io::Read;
 use openssl;
 use openssl::pkey::PKey;
 use openssl::rsa::Rsa;
-use openssl::x509::{X509Req, X509Name, X509Ref};
+use openssl::x509::{X509, X509Req, X509Name, X509Ref};
 use openssl::x509::extension::SubjectAlternativeName;
 use openssl::stack::Stack;
 use openssl::hash::MessageDigest;
@@ -74,4 +74,16 @@ pub fn gen_csr(pkey: &PKey<openssl::pkey::Private>, domains: &[&str]) -> Result<
     builder.sign(pkey, MessageDigest::sha256())?;
 
     Ok(builder.build())
+}
+
+/// load a signed certificate from pem formatted file
+pub fn get_certificate_from_file<P: AsRef<Path>>(path: P) -> Result<X509> {
+    let content = {
+        let mut file = File::open(path)?;
+        let mut content = Vec::new();
+        file.read_to_end(&mut content)?;
+        content
+    };
+    let cert = X509::from_pem(&content)?;
+    Ok(cert)
 }
