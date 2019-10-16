@@ -258,11 +258,11 @@ let account = directory.account_registration()
 ```
 
 Contact email address is optional. You can also use your own private key during
-registration. See [AccountRegistration](https://docs.rs/acme-client/0.5/acme_client/struct.AccountRegistration.html) helper for more
+registration. See [AcmeAccountRegistration](https://docs.rs/acme-client/0.5/acme_client/struct.AcmeAccountRegistration.html) helper for more
 details.
 
 If you already registed with your own keys before, you still need to use
-[`register`](https://docs.rs/acme-client/0.5/acme_client/struct.AccountRegistration.html#method.register) method,
+[`register`](https://docs.rs/acme-client/0.5/acme_client/struct.AcmeAccountRegistration.html#method.register) method,
 in this case it will identify your user account instead of creating a new one.
 
 
@@ -305,7 +305,7 @@ control over a domain name by proving that it can provision resources
 on an HTTP server that responds for that domain name.
 
 `acme-client` has
-[`save_key_authorization`](https://docs.rs/acme-client/0.5/acme_client/struct.AcmeAuthorizationChallenge.html#method.save_key_authorization) method
+[`save_key_authorization`](https://docs.rs/acme-client/0.5/acme_client/struct.AcmeAccountOrderAuthChallenge.html#method.save_key_authorization) method
 to save vaditation file to a public directory. This directory must be accessible to outside
 world.
 
@@ -331,7 +331,7 @@ The DNS challenge requires the client to provision a TXT record containing a des
 value under a specific validation domain name.
 
 `acme-client` can generated this value with
-[`signature`](https://docs.rs/acme-client/0.5/acme_client/struct.AcmeAuthorizationChallenge.html#method.signature) method.
+[`signature`](https://docs.rs/acme-client/0.5/acme_client/struct.AcmeAccountOrderAuthChallenge.html#method.signature) method.
 
 The user constructs the validation domain name by prepending the label "_acme-challenge"
 to the domain name being validated, then provisions a TXT record with the digest value under
@@ -358,8 +358,8 @@ dns_challenge.validate()?;
 ## Signing a certificate
 
 After validating all the domain names you can send a sign certificate request. `acme-client`
-provides [`CertificateSigner`](https://docs.rs/acme-client/0.5/acme_client/struct.CertificateSigner.html) helper for this. You can
-use your own key and CSR or you can let `CertificateSigner` to generate them for you.
+provides [`AcmeCertificateSigner`](https://docs.rs/acme-client/0.5/acme_client/struct.AcmeCertificateSigner.html) helper for this. You can
+use your own key and CSR or you can let `AcmeCertificateSigner` to generate them for you.
 
 ```rust,no_run
 let domains = ["example.com", "example.org"];

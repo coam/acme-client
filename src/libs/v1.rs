@@ -89,11 +89,11 @@
 //! ```
 //!
 //! Contact email address is optional. You can also use your own private key during
-//! registration. See [AccountRegistration](struct.AccountRegistration.html) helper for more
+//! registration. See [AcmeAccountRegistration](struct.AcmeAccountRegistration.html) helper for more
 //! details.
 //!
 //! If you already registed with your own keys before, you still need to use
-//! [`register`](struct.AccountRegistration.html#method.register) method,
+//! [`register`](struct.AcmeAccountRegistration.html#method.register) method,
 //! in this case it will identify your user account instead of creating a new one.
 //!
 //!
@@ -153,7 +153,7 @@
 //! on an HTTP server that responds for that domain name.
 //!
 //! `acme-client` has
-//! [`save_key_authorization`](struct.AcmeAuthorizationChallenge.html#method.save_key_authorization) method
+//! [`save_key_authorization`](struct.AcmeAccountOrderAuthChallenge.html#method.save_key_authorization) method
 //! to save vaditation file to a public directory. This directory must be accessible to outside
 //! world.
 //!
@@ -188,7 +188,7 @@
 //! value under a specific validation domain name.
 //!
 //! `acme-client` can generated this value with
-//! [`signature`](struct.AcmeAuthorizationChallenge.html#method.signature) method.
+//! [`signature`](struct.AcmeAccountOrderAuthChallenge.html#method.signature) method.
 //!
 //! The user constructs the validation domain name by prepending the label "_acme-challenge"
 //! to the domain name being validated, then provisions a TXT record with the digest value under
@@ -224,8 +224,8 @@
 //! ## Signing a certificate
 //!
 //! After validating all the domain names you can send a sign certificate request. `acme-client`
-//! provides [`CertificateSigner`](struct.CertificateSigner.html) helper for this. You can
-//! use your own key and CSR or you can let `CertificateSigner` to generate them for you.
+//! provides [`AcmeCertificateSigner`](struct.AcmeCertificateSigner.html) helper for this. You can
+//! use your own key and CSR or you can let `AcmeCertificateSigner` to generate them for you.
 //!
 //! ```rust,no_run
 //! # use acme_client::libs::error::Result;
@@ -315,7 +315,7 @@ pub struct Directory {
 /// Every operation requires a registered account. To register an `Account` you can use
 /// `Directory::register_account` method.
 ///
-/// See [AccountRegistration](struct.AccountRegistration.html) helper for more details.
+/// See [AcmeAccountRegistration](struct.AcmeAccountRegistration.html) helper for more details.
 pub struct Account {
     directory: Directory,
     pkey: PKey<openssl::pkey::Private>,
@@ -323,7 +323,7 @@ pub struct Account {
 
 
 /// Helper to register an account.
-pub struct AccountRegistration {
+pub struct AcmeAccountRegistration {
     directory: Directory,
     pkey: Option<PKey<openssl::pkey::Private>>,
     email: Option<String>,
@@ -333,7 +333,7 @@ pub struct AccountRegistration {
 
 
 /// Helper to sign a certificate.
-pub struct CertificateSigner<'a> {
+pub struct AcmeCertificateSigner<'a> {
     account: &'a Account,
     domains: &'a [&'a str],
     pkey: Option<PKey<openssl::pkey::Private>>,
@@ -342,7 +342,7 @@ pub struct CertificateSigner<'a> {
 
 
 /// A signed certificate.
-pub struct SignedCertificate {
+pub struct AcmeSignedCertificate {
     cert: X509,
     csr: X509Req,
     pkey: PKey<openssl::pkey::Private>,
@@ -350,17 +350,17 @@ pub struct SignedCertificate {
 
 
 /// Identifier authorization object.
-pub struct Authorization<'a>(pub Vec<AcmeAuthorizationChallenge<'a>>);
+pub struct Authorization<'a>(pub Vec<AcmeAccountOrderAuthChallenge<'a>>);
 
 
 /// A verification challenge.
-pub struct AcmeAuthorizationChallenge<'a> {
+pub struct AcmeAccountOrderAuthChallenge<'a> {
     account: &'a Account,
     /// Type of verification challenge. Usually `http-01`, `dns-01` for letsencrypt.
     pub ctype: String,
     /// URL to trigger challenge.
     pub url: String,
-    /// AcmeAuthorizationChallenge token.
+    /// AcmeAccountOrderAuthChallenge token.
     pub token: String,
     /// Key authorization.
     pub key_authorization: String,
@@ -405,9 +405,9 @@ impl Directory {
             .and_then(|k| k.as_str())
     }
 
-    /// Consumes directory and creates new AccountRegistration.
+    /// Consumes directory and creates new AcmeAccountRegistration.
     ///
-    /// AccountRegistration is used to register an account.
+    /// AcmeAccountRegistration is used to register an account.
     ///
     /// ```rust,no_run
     /// # use acme_client::libs::error::Result;
@@ -421,8 +421,8 @@ impl Directory {
     /// # Ok(()) }
     /// # fn main () { try_main().unwrap(); }
     /// ```
-    pub fn account_registration(self) -> AccountRegistration {
-        AccountRegistration {
+    pub fn account_registration(self) -> AcmeAccountRegistration {
+        AcmeAccountRegistration {
             directory: self,
             pkey: None,
             email: None,
@@ -553,11 +553,11 @@ impl Account {
             .ok_or("No challenge found")? {
             let obj = challenge
                 .as_object()
-                .ok_or("AcmeAuthorizationChallenge object not found")?;
+                .ok_or("AcmeAccountOrderAuthChallenge object not found")?;
 
             let ctype = obj.get("type")
                 .and_then(|t| t.as_str())
-                .ok_or("AcmeAuthorizationChallenge type not found")?
+                .ok_or("AcmeAccountOrderAuthChallenge type not found")?
                 .to_owned();
             let uri = obj.get("uri")
                 .and_then(|t| t.as_str())
@@ -578,7 +578,7 @@ impl Account {
                                                           .jwk(self.pkey())?)?
                                                           .into_bytes())?));
 
-            let challenge = AcmeAuthorizationChallenge {
+            let challenge = AcmeAccountOrderAuthChallenge {
                 account: self,
                 ctype: ctype,
                 url: uri,
@@ -591,15 +591,15 @@ impl Account {
         Ok(Authorization(challenges))
     }
 
-    /// Creates a new `CertificateSigner` helper to sign a certificate for list of domains.
+    /// Creates a new `AcmeCertificateSigner` helper to sign a certificate for list of domains.
     ///
     /// `domains` must be list of the domain names you want to sign a certificate for.
     /// Currently there is no way to retrieve subject alt names from a X509Req.
     ///
     /// You can additionally use your own private key and CSR.
-    /// See [`CertificateSigner`](struct.CertificateSigner.html) for details.
-    pub fn certificate_signer<'a>(&'a self, domains: &'a [&'a str]) -> CertificateSigner<'a> {
-        CertificateSigner {
+    /// See [`AcmeCertificateSigner`](struct.AcmeCertificateSigner.html) for details.
+    pub fn certificate_signer<'a>(&'a self, domains: &'a [&'a str]) -> AcmeCertificateSigner<'a> {
+        AcmeCertificateSigner {
             account: self,
             domains: domains,
             pkey: None,
@@ -661,15 +661,15 @@ impl Account {
 }
 
 
-impl AccountRegistration {
+impl AcmeAccountRegistration {
     /// Sets contact email address
-    pub fn email(mut self, email: &str) -> AccountRegistration {
+    pub fn email(mut self, email: &str) -> AcmeAccountRegistration {
         self.email = Some(email.to_owned());
         self
     }
 
     /// Sets contact details such as telephone number (Let's Encrypt only supports email address).
-    pub fn contact(mut self, contact: &[&str]) -> AccountRegistration {
+    pub fn contact(mut self, contact: &[&str]) -> AcmeAccountRegistration {
         self.contact = Some(contact.iter().map(|c| c.to_string()).collect());
         self
     }
@@ -677,19 +677,19 @@ impl AccountRegistration {
     /// Sets agreement url,
     /// [`LETS_ENCRYPT_AGREEMENT_URL`](constant.LETS_ENCRYPT_AGREEMENT_URL.html)
     /// will be used during registration if it's not set.
-    pub fn agreement(mut self, url: &str) -> AccountRegistration {
+    pub fn agreement(mut self, url: &str) -> AcmeAccountRegistration {
         self.agreement = Some(url.to_owned());
         self
     }
 
     /// Sets account private key. A new key will be generated if it's not set.
-    pub fn pkey(mut self, pkey: PKey<openssl::pkey::Private>) -> AccountRegistration {
+    pub fn pkey(mut self, pkey: PKey<openssl::pkey::Private>) -> AcmeAccountRegistration {
         self.pkey = Some(pkey);
         self
     }
 
     /// Sets PKey from a PEM formatted file.
-    pub fn pkey_from_file<P: AsRef<Path>>(mut self, path: P) -> Result<AccountRegistration> {
+    pub fn pkey_from_file<P: AsRef<Path>>(mut self, path: P) -> Result<AcmeAccountRegistration> {
         self.pkey = Some(read_pkey(path)?);
         Ok(self)
     }
@@ -731,21 +731,21 @@ impl AccountRegistration {
 }
 
 
-impl<'a> CertificateSigner<'a> {
+impl<'a> AcmeCertificateSigner<'a> {
     /// Set PKey of CSR
-    pub fn pkey(mut self, pkey: PKey<openssl::pkey::Private>) -> CertificateSigner<'a> {
+    pub fn pkey(mut self, pkey: PKey<openssl::pkey::Private>) -> AcmeCertificateSigner<'a> {
         self.pkey = Some(pkey);
         self
     }
 
     /// Load PEM formatted PKey from file
-    pub fn pkey_from_file<P: AsRef<Path>>(mut self, path: P) -> Result<CertificateSigner<'a>> {
+    pub fn pkey_from_file<P: AsRef<Path>>(mut self, path: P) -> Result<AcmeCertificateSigner<'a>> {
         self.pkey = Some(read_pkey(path)?);
         Ok(self)
     }
 
     /// Set CSR to sign
-    pub fn csr(mut self, csr: X509Req) -> CertificateSigner<'a> {
+    pub fn csr(mut self, csr: X509Req) -> AcmeCertificateSigner<'a> {
         self.csr = Some(csr);
         self
     }
@@ -754,7 +754,7 @@ impl<'a> CertificateSigner<'a> {
     pub fn csr_from_file<P: AsRef<Path>>(mut self,
                                          pkey_path: P,
                                          csr_path: P)
-                                         -> Result<CertificateSigner<'a>> {
+                                         -> Result<AcmeCertificateSigner<'a>> {
         self.pkey = Some(read_pkey(pkey_path)?);
         let content = {
             let mut file = File::open(csr_path)?;
@@ -770,7 +770,7 @@ impl<'a> CertificateSigner<'a> {
     /// Signs certificate.
     ///
     /// CSR and PKey will be generated if it doesn't set or loaded first.
-    pub fn sign_certificate(self) -> Result<SignedCertificate> {
+    pub fn sign_certificate(self) -> Result<AcmeSignedCertificate> {
         info!("Signing certificate");
         let pkey = self.pkey.unwrap_or(gen_key()?);
         let csr = self.csr.unwrap_or(gen_csr(&pkey, self.domains)?);
@@ -803,7 +803,7 @@ impl<'a> CertificateSigner<'a> {
         let cert = X509::from_der(&crt_der)?;
 
         debug!("Certificate successfully signed");
-        Ok(SignedCertificate {
+        Ok(AcmeSignedCertificate {
             cert: cert,
             csr: csr,
             pkey: pkey,
@@ -812,7 +812,7 @@ impl<'a> CertificateSigner<'a> {
 }
 
 
-impl SignedCertificate {
+impl AcmeSignedCertificate {
     /// Saves signed certificate to a file
     pub fn save_signed_certificate<P: AsRef<Path>>(&self, path: P) -> Result<()> {
         let mut file = File::create(path)?;
@@ -921,7 +921,7 @@ impl<'a> Authorization<'a> {
     /// Gets a challenge.
     ///
     /// Pattern is used in `starts_with` for type comparison.
-    pub fn get_challenge(&self, pattern: &str) -> Option<&AcmeAuthorizationChallenge> {
+    pub fn get_challenge(&self, pattern: &str) -> Option<&AcmeAccountOrderAuthChallenge> {
         for challenge in &self.0 {
             if challenge.ctype().starts_with(pattern) {
                 return Some(challenge);
@@ -931,23 +931,23 @@ impl<'a> Authorization<'a> {
     }
 
     /// Gets http challenge
-    pub fn get_http_challenge(&self) -> Option<&AcmeAuthorizationChallenge> {
+    pub fn get_http_challenge(&self) -> Option<&AcmeAccountOrderAuthChallenge> {
         self.get_challenge("http")
     }
 
     /// Gets dns challenge
-    pub fn get_dns_challenge(&self) -> Option<&AcmeAuthorizationChallenge> {
+    pub fn get_dns_challenge(&self) -> Option<&AcmeAccountOrderAuthChallenge> {
         self.get_challenge("dns")
     }
 
     /// Gets tls-sni challenge
-    pub fn get_tls_sni_challenge(&self) -> Option<&AcmeAuthorizationChallenge> {
+    pub fn get_tls_sni_challenge(&self) -> Option<&AcmeAccountOrderAuthChallenge> {
         self.get_challenge("tls-sni")
     }
 }
 
 
-impl<'a> AcmeAuthorizationChallenge<'a> {
+impl<'a> AcmeAccountOrderAuthChallenge<'a> {
     /// Saves key authorization into `{path}/.well-known/acme-challenge/{token}` for http challenge.
     pub fn save_key_authorization<P: AsRef<Path>>(&self, path: P) -> Result<()> {
         use std::fs::create_dir_all;

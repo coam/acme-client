@@ -15,7 +15,7 @@ acme-client (0.5.2)
 acme-client (0.5.1)
 
   [LIB]
-  * Implement save_intermediate_certificate for SignedCertificate.
+  * Implement save_intermediate_certificate for AcmeSignedCertificate.
   * Add helper module and make helpers public.
 
   [CLI]
@@ -89,7 +89,7 @@ acme-client (0.4.1)
 
   [LIB]
   * Add links to types in documentation.
-  * Implement token and key_authorization methods for AcmeAuthorizationChallenge.
+  * Implement token and key_authorization methods for AcmeAccountOrderAuthChallenge.
   * Implement get_tls_sni_challenge for Authorization.
 
  -- Onur Aslan <onur@onur.im>  Sat Apr 15 13:10:42 2017 +0300
