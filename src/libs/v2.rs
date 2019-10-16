@@ -618,8 +618,8 @@ pub struct AccountAuthChallengeValidationRecord {
 
 impl Account {
     /// Creates a new identifier authorization object for domain
-    //pub fn get_acme_order_auth_list<'a>(&'a self, order: &OrderData) -> Result<Authorization<'a>> {
-    pub fn get_acme_order_auth_list(&self, order: &OrderData) -> Result<Vec<AccountAuthData>> {
+    //pub fn get_auth_acme_order_list<'a>(&'a self, order: &OrderData) -> Result<Authorization<'a>> {
+    pub fn get_auth_acme_order_list(&self, order: &OrderData) -> Result<Vec<AccountAuthData>> {
         info!("[循环验证 ACME 订单] -> Sending authorization request for order: {:?}", order);
         //info!("Sending identifier authorization request for {}", domain);
 
@@ -640,7 +640,7 @@ impl Account {
         //let mut challenges = Vec::new();
 
         // 授权列表...
-        let mut acme_order_auth_list = Vec::<AccountAuthData>::new();
+        let mut auth_acme_order_list = Vec::<AccountAuthData>::new();
 
         // 循环授权验证...
         for authorization in &order.authorizations {
@@ -712,10 +712,10 @@ impl Account {
             let account_auth_data = AccountAuthData { auth_domain_identifier, auth_dns_challenge };
 
             // 推入授权列表...
-            acme_order_auth_list.push(account_auth_data);
+            auth_acme_order_list.push(account_auth_data);
         }
 
-        Ok(acme_order_auth_list)
+        Ok(auth_acme_order_list)
     }
 
     ///// load a signed certificate from pem formatted file
