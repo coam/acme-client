@@ -153,7 +153,7 @@
 //! on an HTTP server that responds for that domain name.
 //!
 //! `acme-client` has
-//! [`save_key_authorization`](struct.Challenge.html#method.save_key_authorization) method
+//! [`save_key_authorization`](struct.AcmeAuthorizationChallenge.html#method.save_key_authorization) method
 //! to save vaditation file to a public directory. This directory must be accessible to outside
 //! world.
 //!
@@ -188,7 +188,7 @@
 //! value under a specific validation domain name.
 //!
 //! `acme-client` can generated this value with
-//! [`signature`](struct.Challenge.html#method.signature) method.
+//! [`signature`](struct.AcmeAuthorizationChallenge.html#method.signature) method.
 //!
 //! The user constructs the validation domain name by prepending the label "_acme-challenge"
 //! to the domain name being validated, then provisions a TXT record with the digest value under
@@ -350,17 +350,17 @@ pub struct SignedCertificate {
 
 
 /// Identifier authorization object.
-pub struct Authorization<'a>(pub Vec<Challenge<'a>>);
+pub struct Authorization<'a>(pub Vec<AcmeAuthorizationChallenge<'a>>);
 
 
 /// A verification challenge.
-pub struct Challenge<'a> {
+pub struct AcmeAuthorizationChallenge<'a> {
     account: &'a Account,
     /// Type of verification challenge. Usually `http-01`, `dns-01` for letsencrypt.
     pub ctype: String,
     /// URL to trigger challenge.
     pub url: String,
-    /// Challenge token.
+    /// AcmeAuthorizationChallenge token.
     pub token: String,
     /// Key authorization.
     pub key_authorization: String,
@@ -553,11 +553,11 @@ impl Account {
             .ok_or("No challenge found")? {
             let obj = challenge
                 .as_object()
-                .ok_or("Challenge object not found")?;
+                .ok_or("AcmeAuthorizationChallenge object not found")?;
 
             let ctype = obj.get("type")
                 .and_then(|t| t.as_str())
-                .ok_or("Challenge type not found")?
+                .ok_or("AcmeAuthorizationChallenge type not found")?
                 .to_owned();
             let uri = obj.get("uri")
                 .and_then(|t| t.as_str())
@@ -578,7 +578,7 @@ impl Account {
                                                           .jwk(self.pkey())?)?
                                                           .into_bytes())?));
 
-            let challenge = Challenge {
+            let challenge = AcmeAuthorizationChallenge {
                 account: self,
                 ctype: ctype,
                 url: uri,
@@ -921,7 +921,7 @@ impl<'a> Authorization<'a> {
     /// Gets a challenge.
     ///
     /// Pattern is used in `starts_with` for type comparison.
-    pub fn get_challenge(&self, pattern: &str) -> Option<&Challenge> {
+    pub fn get_challenge(&self, pattern: &str) -> Option<&AcmeAuthorizationChallenge> {
         for challenge in &self.0 {
             if challenge.ctype().starts_with(pattern) {
                 return Some(challenge);
@@ -931,23 +931,23 @@ impl<'a> Authorization<'a> {
     }
 
     /// Gets http challenge
-    pub fn get_http_challenge(&self) -> Option<&Challenge> {
+    pub fn get_http_challenge(&self) -> Option<&AcmeAuthorizationChallenge> {
         self.get_challenge("http")
     }
 
     /// Gets dns challenge
-    pub fn get_dns_challenge(&self) -> Option<&Challenge> {
+    pub fn get_dns_challenge(&self) -> Option<&AcmeAuthorizationChallenge> {
         self.get_challenge("dns")
     }
 
     /// Gets tls-sni challenge
-    pub fn get_tls_sni_challenge(&self) -> Option<&Challenge> {
+    pub fn get_tls_sni_challenge(&self) -> Option<&AcmeAuthorizationChallenge> {
         self.get_challenge("tls-sni")
     }
 }
 
 
-impl<'a> Challenge<'a> {
+impl<'a> AcmeAuthorizationChallenge<'a> {
     /// Saves key authorization into `{path}/.well-known/acme-challenge/{token}` for http challenge.
     pub fn save_key_authorization<P: AsRef<Path>>(&self, path: P) -> Result<()> {
         use std::fs::create_dir_all;

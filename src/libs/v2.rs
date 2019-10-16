@@ -153,7 +153,7 @@
 //! on an HTTP server that responds for that domain name.
 //!
 //! `acme-client` has
-//! [`save_key_authorization`](struct.Challenge.html#method.save_key_authorization) method
+//! [`save_key_authorization`](struct.AcmeAuthorizationChallenge.html#method.save_key_authorization) method
 //! to save vaditation file to a public directory. This directory must be accessible to outside
 //! world.
 //!
@@ -188,7 +188,7 @@
 //! value under a specific validation domain name.
 //!
 //! `acme-client` can generated this value with
-//! [`signature`](struct.Challenge.html#method.signature) method.
+//! [`signature`](struct.AcmeAuthorizationChallenge.html#method.signature) method.
 //!
 //! The user constructs the validation domain name by prepending the label "_acme-challenge"
 //! to the domain name being validated, then provisions a TXT record with the digest value under
@@ -323,7 +323,7 @@ pub struct Directory {
 /// `Directory::register_account` method.
 ///
 /// See [AccountRegistration](struct.AccountRegistration.html) helper for more details.
-pub struct Account {
+pub struct AcmeAccount {
     directory: Directory,
     account_url: String,
     pkey: PKey<openssl::pkey::Private>,
@@ -341,12 +341,11 @@ pub struct AccountRegistration {
 
 /// Helper to sign a certificate.
 pub struct CertificateSigner<'a> {
-    account: &'a Account,
+    account: &'a AcmeAccount,
     domains: &'a [&'a str],
     pkey: Option<PKey<openssl::pkey::Private>>,
     csr: Option<X509Req>,
 }
-
 
 /// A signed certificate.
 pub struct SignedCertificate {
@@ -355,24 +354,21 @@ pub struct SignedCertificate {
     pkey: PKey<openssl::pkey::Private>,
 }
 
-
 /// Identifier authorization object.
-pub struct Authorization<'a>(pub Vec<Challenge<'a>>);
-
+pub struct Authorization<'a>(pub Vec<AcmeAuthorizationChallenge<'a>>);
 
 /// A verification challenge.
-pub struct Challenge<'a> {
-    pub account: &'a Account,
+pub struct AcmeAuthorizationChallenge<'a> {
+    pub account: &'a AcmeAccount,
     /// Type of verification challenge. Usually `http-01`, `dns-01` for letsencrypt.
     pub ctype: String,
     /// URL to trigger challenge.
     pub url: String,
-    /// Challenge token.
+    /// AcmeAuthorizationChallenge token.
     pub token: String,
     /// Key authorization.
     pub key_authorization: String,
 }
-
 
 impl Directory {
     /// Creates a Directory from
@@ -579,23 +575,23 @@ impl Directory {
 pub struct AccountAuthResponse {
     status: String,
     expires: String,
-    pub identifier: OrderIdentifier,
+    pub identifier: AcmeOrderIdentifier,
     // 授权挑战方案列表
-    pub challenges: Vec<AccountAuthChallenge>,
+    pub challenges: Vec<AccountAuthAcmeAuthorizationChallenge>,
 }
 
 // 账户授权数据...
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AccountAuthData {
     // 订单身份凭证
-    pub auth_domain_identifier: OrderIdentifier,
+    pub auth_domain_identifier: AcmeOrderIdentifier,
     // DNS-01 授权验证挑战
-    pub auth_dns_challenge: AccountAuthChallenge,
+    pub auth_dns_challenge: AccountAuthAcmeAuthorizationChallenge,
 }
 
-// Challenge 挑战...
+// AcmeAuthorizationChallenge 挑战...
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct AccountAuthChallenge {
+pub struct AccountAuthAcmeAuthorizationChallenge {
     //r#type: String,
     #[serde(rename = "type")]
     pub types: String,
@@ -604,22 +600,22 @@ pub struct AccountAuthChallenge {
     pub token: String,
     pub wildcard: Option<bool>,
     #[serde(rename = "validationRecord")]
-    pub validation_record: Option<Vec<AccountAuthChallengeValidationRecord>>,
+    pub validation_record: Option<Vec<AccountAuthAcmeAuthorizationChallengeValidationRecord>>,
     // 授权签名...
     pub key_authorization: Option<String>,
     pub auth_challenge_token: Option<String>,
 }
 
-// Challenge 挑战...
+// AcmeAuthorizationChallenge 挑战...
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct AccountAuthChallengeValidationRecord {
+pub struct AccountAuthAcmeAuthorizationChallengeValidationRecord {
     hostname: String,
 }
 
-impl Account {
+impl AcmeAccount {
     /// Creates a new identifier authorization object for domain
-    //pub fn get_auth_acme_order_list<'a>(&'a self, order: &OrderData) -> Result<Authorization<'a>> {
-    pub fn get_auth_acme_order_list(&self, order: &OrderData) -> Result<Vec<AccountAuthData>> {
+    //pub fn get_auth_acme_order_list<'a>(&'a self, order: &AcmeOrder) -> Result<Authorization<'a>> {
+    pub fn get_auth_acme_order_list(&self, order: &AcmeOrder) -> Result<Vec<AccountAuthData>> {
         info!("[循环验证 ACME 订单] -> Sending authorization request for order: {:?}", order);
         //info!("Sending identifier authorization request for {}", domain);
 
@@ -694,7 +690,7 @@ impl Account {
             //let challenge_token = b64(&hash(MessageDigest::sha256(), key_authorization.as_bytes())?);
 
             // 获取挑战签名...
-            let challenge = Challenge {
+            let challenge = AcmeAuthorizationChallenge {
                 account: self,
                 ctype: types,
                 url: url,
@@ -842,7 +838,7 @@ impl AccountRegistration {
     /// Registers an account.
     ///
     /// A PKey will be generated if it doesn't exists.
-    pub fn register(self) -> Result<Account> {
+    pub fn register(self) -> Result<AcmeAccount> {
         debug!("[发起注册账户流程:v2]Registering account");
 
         let mut map = HashMap::new();
@@ -876,7 +872,7 @@ impl AccountRegistration {
         // 账户地址...
         let account_url = resp_headers.get("location").unwrap();
 
-        Ok(Account {
+        Ok(AcmeAccount {
             directory: self.directory,
             account_url: String::from(account_url.to_str().unwrap()),
             pkey: pkey,
@@ -887,12 +883,12 @@ impl AccountRegistration {
 /// Helper to create an order.
 //#[derive(Serialize, Deserialize, Debug)]
 pub struct OrderCreator {
-    order_identifiers: Option<Vec<OrderIdentifier>>,
+    order_identifiers: Option<Vec<AcmeOrderIdentifier>>,
 }
 
 // 订单数据
 #[derive(Serialize, Deserialize, Debug)]
-pub struct OrderData {
+pub struct AcmeOrder {
     //directory: Directory,
     pub account_url: String,
     pub order_url: String,
@@ -900,23 +896,23 @@ pub struct OrderData {
     pub certificate: Option<String>,
     //pkey: PKey<openssl::pkey::Private>,
     pub authorizations: Vec<String>,
-    pub identifiers: Vec<OrderIdentifier>,
+    pub identifiers: Vec<AcmeOrderIdentifier>,
 }
 
 // 订单接口数据
 #[derive(Serialize, Deserialize, Debug)]
-pub struct OrderResponse {
+pub struct AcmeOrderResponse {
     pub status: String,
     pub finalize: String,
     pub certificate: Option<String>,
     pub expires: String,
     pub authorizations: Vec<String>,
-    pub identifiers: Vec<OrderIdentifier>,
+    pub identifiers: Vec<AcmeOrderIdentifier>,
 }
 
 // DNS 解析记录
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct OrderIdentifier {
+pub struct AcmeOrderIdentifier {
     #[serde(rename = "type")]
     pub types: String,
     pub value: String,
@@ -924,7 +920,7 @@ pub struct OrderIdentifier {
 
 impl OrderCreator {
     /// Sets contact email address
-    pub fn identifiers(mut self, order_identifiers: Vec<OrderIdentifier>) -> OrderCreator {
+    pub fn identifiers(mut self, order_identifiers: Vec<AcmeOrderIdentifier>) -> OrderCreator {
         self.order_identifiers = Some(order_identifiers);
         self
     }
@@ -932,7 +928,7 @@ impl OrderCreator {
     /// Registers an account.
     ///
     /// A PKey will be generated if it doesn't exists.
-    pub fn create(self, account: &Account) -> Result<OrderData> {
+    pub fn create(self, account: &AcmeAccount) -> Result<AcmeOrder> {
         info!("[执行创建订单流程]Creating order");
 
         let mut map = HashMap::new();
@@ -942,10 +938,10 @@ impl OrderCreator {
 
         // 手动创建...
         //let point = vec![
-        //    OrderIdentifier {
+        //    AcmeOrderIdentifier {
         //        types: String::from("dns"),
         //        value: String::from("copen.io"),
-        //    }, OrderIdentifier {
+        //    }, AcmeOrderIdentifier {
         //        types: String::from("dns"),
         //        value: String::from("*.copen.io"),
         //    }
@@ -972,12 +968,12 @@ impl OrderCreator {
         };
 
         // 解析结构体数据...
-        let order_response: OrderResponse = serde_json::from_str(&resp.to_string())?;
+        let order_response: AcmeOrderResponse = serde_json::from_str(&resp.to_string())?;
 
         // 账户地址...
         let order_url = resp_headers.get("location").unwrap().to_str().unwrap();
 
-        Ok(OrderData {
+        Ok(AcmeOrder {
             account_url: account_url.clone(),
             order_url: order_url.to_string(),
             finalize_url: order_response.finalize,
@@ -1036,7 +1032,7 @@ impl<'a> CertificateSigner<'a> {
 
     /// finalize_order.
     /// CSR and PKey will be generated if it doesn't set or loaded first.
-    pub fn finalize_order<'b, 'c>(&'b self, order: &'c mut OrderData) -> Result<&'c OrderData> {
+    pub fn finalize_order<'b, 'c>(&'b self, order: &'c mut AcmeOrder) -> Result<&'c AcmeOrder> {
         // 获取请求的url
         //let url = self.account.directory().url_for(resource).ok_or(format!("URL for resource: {} not found", resource))?;
         //let url = &order.order_url;
@@ -1079,7 +1075,7 @@ impl<'a> CertificateSigner<'a> {
         // copy the response body directly to stdout
         //std::io::copy(&mut res, &mut std::io::stdout())?;
 
-        let mut order_response: OrderResponse = res.json()?;
+        let mut order_response: AcmeOrderResponse = res.json()?;
         trace!("[####################][+++]res.order_response: \n{:?}", order_response);
 
         // 判断是否经过验证...
@@ -1104,7 +1100,7 @@ impl<'a> CertificateSigner<'a> {
     /// Signs certificate.
     ///
     /// CSR and PKey will be generated if it doesn't set or loaded first.
-    pub fn sign_certificate(self, order: &OrderData) -> Result<SignedCertificate> {
+    pub fn sign_certificate(self, order: &AcmeOrder) -> Result<SignedCertificate> {
         info!("[验证订单签发证书流程] -> Signing certificate");
 
         // 判断是否经过验证...
@@ -1285,7 +1281,7 @@ impl<'a> Authorization<'a> {
     /// Gets a challenge.
     ///
     /// Pattern is used in `starts_with` for type comparison.
-    pub fn get_challenge(&self, pattern: &str) -> Option<&Challenge> {
+    pub fn get_challenge(&self, pattern: &str) -> Option<&AcmeAuthorizationChallenge> {
         for challenge in &self.0 {
             if challenge.ctype().starts_with(pattern) {
                 return Some(challenge);
@@ -1295,28 +1291,28 @@ impl<'a> Authorization<'a> {
     }
 
     /// Gets http challenge
-    pub fn get_http_challenge(&self) -> Option<&Challenge> {
+    pub fn get_http_challenge(&self) -> Option<&AcmeAuthorizationChallenge> {
         self.get_challenge("http")
     }
 
     /// Gets dns challenge
-    pub fn get_dns_challenge(&self) -> Option<&Challenge> {
+    pub fn get_dns_challenge(&self) -> Option<&AcmeAuthorizationChallenge> {
         self.get_challenge("dns")
     }
 
     /// Gets tls-sni challenge
-    pub fn get_tls_sni_challenge(&self) -> Option<&Challenge> {
+    pub fn get_tls_sni_challenge(&self) -> Option<&AcmeAuthorizationChallenge> {
         self.get_challenge("tls-sni")
     }
 
 //    /// Gets all dns challenge
-//    pub fn get_dns_challenges(&self) -> Option<&Vec<Challenge>> {
+//    pub fn get_dns_challenges(&self) -> Option<&Vec<AcmeAuthorizationChallenge>> {
 //        Some(&self.0)
 //    }
 }
 
 
-impl<'a> Challenge<'a> {
+impl<'a> AcmeAuthorizationChallenge<'a> {
     /// Saves key authorization into `{path}/.well-known/acme-challenge/{token}` for http challenge.
     pub fn save_key_authorization<P: AsRef<Path>>(&self, path: P) -> Result<()> {
         use std::fs::create_dir_all;

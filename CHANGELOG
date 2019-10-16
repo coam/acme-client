@@ -89,7 +89,7 @@ acme-client (0.4.1)
 
   [LIB]
   * Add links to types in documentation.
-  * Implement token and key_authorization methods for Challenge.
+  * Implement token and key_authorization methods for AcmeAuthorizationChallenge.
   * Implement get_tls_sni_challenge for Authorization.
 
  -- Onur Aslan <onur@onur.im>  Sat Apr 15 13:10:42 2017 +0300

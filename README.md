@@ -305,7 +305,7 @@ control over a domain name by proving that it can provision resources
 on an HTTP server that responds for that domain name.
 
 `acme-client` has
-[`save_key_authorization`](https://docs.rs/acme-client/0.5/acme_client/struct.Challenge.html#method.save_key_authorization) method
+[`save_key_authorization`](https://docs.rs/acme-client/0.5/acme_client/struct.AcmeAuthorizationChallenge.html#method.save_key_authorization) method
 to save vaditation file to a public directory. This directory must be accessible to outside
 world.
 
@@ -331,7 +331,7 @@ The DNS challenge requires the client to provision a TXT record containing a des
 value under a specific validation domain name.
 
 `acme-client` can generated this value with
-[`signature`](https://docs.rs/acme-client/0.5/acme_client/struct.Challenge.html#method.signature) method.
+[`signature`](https://docs.rs/acme-client/0.5/acme_client/struct.AcmeAuthorizationChallenge.html#method.signature) method.
 
 The user constructs the validation domain name by prepending the label "_acme-challenge"
 to the domain name being validated, then provisions a TXT record with the digest value under
