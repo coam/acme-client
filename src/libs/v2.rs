@@ -772,7 +772,7 @@ pub struct AcmeOrderData {
 
 impl AcmeOrderData {
     /// Creates a new identifier authorization object for domain
-    pub fn load_acme_order_auth_list(&mut self) -> Result<&AcmeOrderData> {
+    pub fn request_acme_order_auth_list(&mut self) -> Result<&AcmeOrderData> {
         info!("[循环验证 ACME 订单] -> Sending authorization request for order: {:?}", self);
 
         // 循环授权验证...
