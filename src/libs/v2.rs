@@ -871,14 +871,13 @@ impl AcmeOrderData {
             //let challenge_token = b64(&hash(MessageDigest::sha256(), key_authorization.as_bytes())?);
 
             // 获取挑战签名...
-            let challenge = AcmeAccountOrderAuthChallenge {
-                account: acme_account,
+            let acme_account_order_auth_challenge = AcmeAccountOrderAuthChallenge {
                 ctype: types,
                 url: url,
                 token: token,
                 key_authorization: key_authorization.clone(),
             };
-            let auth_challenge_token = challenge.signature().unwrap();
+            let auth_challenge_token = acme_account_order_auth_challenge.signature().unwrap();
             info!("[域名挑战验证签名 `dns-01` TXT解析值] authorization challenge info: [auth_challenge_token: {:?}][key_thumbprint: {:?}][key_authorization: {:?}]", auth_challenge_token, key_thumbprint, key_authorization);
 
             // 保存授权...
@@ -909,7 +908,7 @@ impl AcmeOrderData {
 
             // 判断是否已经过验证
             if auth_dns_challenge.status == "valid" {
-                warn!("该挑战已验证,取消重复发起挑战验证请求!");
+                warn!("该挑战已为验证状态,取消重复发起挑战验证请求!");
                 continue;
             }
 
@@ -935,8 +934,7 @@ impl AcmeOrderData {
                 info!("[循环延时验证,请耐心等待...][acme_name: {}] 尝试延时验证批次[try_ts: {}]", acme_name, try_ts);
 
                 // 获取挑战签名...
-                let challenge = AcmeAccountOrderAuthChallenge {
-                    account: acme_account,
+                let acme_account_order_auth_challenge = AcmeAccountOrderAuthChallenge {
                     ctype: types.clone(),
                     url: url.clone(),
                     token: token.clone(),
@@ -944,7 +942,7 @@ impl AcmeOrderData {
                 };
 
                 // 发起授权验证...
-                let dns_challenge_results = challenge.validate();
+                let dns_challenge_results = self.validate(acme_account, acme_account_order_auth_challenge);
 
                 // 如果验证成功,则跳出验证请求...
                 if let Ok(()) = dns_challenge_results {
@@ -967,6 +965,96 @@ impl AcmeOrderData {
         }
 
         Ok("挑战列表验证成功!".to_string())
+    }
+
+    /// Triggers validation.
+    pub fn validate(&self, acme_account: &AcmeAccountData, challenge: AcmeAccountOrderAuthChallenge) -> Result<()> {
+        info!("[挑战验证] -> Triggering {} validation", challenge.ctype);
+
+        // 获取请求的url
+        //let url = challenge.url_for(resource).ok_or(format!("URL for resource: {} not found", resource))?;
+
+        // 获取挑战签名...
+        let challenge_token = challenge.signature().unwrap();
+        debug!("validate info: [challenge_token: {:?}]", challenge_token);
+
+        let payload = {
+            let map = {
+                let mut map: HashMap<String, Value> = HashMap::new();
+                map.insert("keyAuthorization".to_owned(), to_value(challenge_token)?);
+                map
+            };
+            acme_account.directory().jws(&challenge.url, acme_account.private_key(), map, Some(acme_account.account_url.clone()))?
+        };
+
+        debug!("[COAM][####################][+++][&challenge.url: {}]", &challenge.url);
+        debug!("[COAM][####################][+++][payload: {}]", payload);
+
+        // 添加 [application/jose+json] 请求头
+        let mut headers = HeaderMap::new();
+        //headers.set(ContentType::json());
+        headers.insert(reqwest::header::CONTENT_TYPE, "application/jose+json".parse().unwrap());
+
+        // 发起请求...
+        let client = Client::new();
+        //let mut resp = client.post(&challenge.url).body(&payload[..]).send()?;
+        let mut resp = client.post(&challenge.url)
+            .headers(headers)
+            .body(payload)
+            .send()?;
+
+        let mut res_json: Value = {
+            let mut res_content = String::new();
+            resp.read_to_string(&mut res_content)?;
+            from_str(&res_content)?
+        };
+
+        debug!("[COAM][####################][+++][res_json: {}]", res_json);
+        debug!("[COAM][####################][+++][status: {}]", resp.status());
+
+        if resp.status() != StatusCode::OK {
+            error!("[###][####################][---][res_json: {}]", res_json);
+            error!("[###][####################][---][status: {}]", resp.status());
+            return Err(ErrorKind::AcmeServerError(res_json).into());
+        }
+
+        loop {
+            // 验证挑战状态
+            let status = res_json.as_object()
+                .and_then(|o| o.get("status"))
+                .and_then(|s| s.as_str())
+                .ok_or("Status not found")?
+                .to_owned();
+
+            debug!("[COAM][####################][LOOP][res_json: {}]", res_json);
+            debug!("[COAM][####################][LOOP][status: {}]", status);
+
+            // 区分验证状态...
+            if status == "pending" {
+                info!("[循环挑战验证状态] -> [challenge validate status: pending], trying again...");
+
+                // 请求结果
+                let mut resp = client.get(&challenge.url).send()?;
+                res_json = {
+                    let mut res_content = String::new();
+                    resp.read_to_string(&mut res_content)?;
+                    from_str(&res_content)?
+                };
+
+                warn!("[challenge validate status: pending][res_json: {}]", res_json);
+            } else if status == "valid" {
+                info!("[循环挑战验证状态] -> [challenge validate status: valid], trying next...");
+                return Ok(());
+            } else if status == "invalid" {
+                error!("[循环挑战验证状态] -> [challenge validate status: invalid], trying ended...");
+                return Err(ErrorKind::AcmeServerError(res_json).into());
+            }
+
+            // 循环等待验证...
+            use std::thread::sleep;
+            use std::time::Duration;
+            sleep(Duration::from_secs(2));
+        }
     }
 
     /// finalize_order.
@@ -1328,11 +1416,10 @@ impl AcmeSignedCertificate {
 }
 
 /// Identifier authorization object.
-pub struct AcmeAccountOrderAuthChallengeList<'a>(pub Vec<AcmeAccountOrderAuthChallenge<'a>>);
+pub struct AcmeAccountOrderAuthChallengeList(pub Vec<AcmeAccountOrderAuthChallenge>);
 
 /// A verification challenge.
-pub struct AcmeAccountOrderAuthChallenge<'a> {
-    pub account: &'a AcmeAccountData,
+pub struct AcmeAccountOrderAuthChallenge {
     /// Type of verification challenge. Usually `http-01`, `dns-01` for letsencrypt.
     pub ctype: String,
     /// URL to trigger challenge.
@@ -1343,7 +1430,7 @@ pub struct AcmeAccountOrderAuthChallenge<'a> {
     pub key_authorization: String,
 }
 
-impl<'a> AcmeAccountOrderAuthChallengeList<'a> {
+impl AcmeAccountOrderAuthChallengeList {
     /// Gets a challenge.
     ///
     /// Pattern is used in `starts_with` for type comparison.
@@ -1377,7 +1464,7 @@ impl<'a> AcmeAccountOrderAuthChallengeList<'a> {
     }
 }
 
-impl<'a> AcmeAccountOrderAuthChallenge<'a> {
+impl AcmeAccountOrderAuthChallenge {
     /// Saves key authorization into `{path}/.well-known/acme-challenge/{token}` for http challenge.
     pub fn save_key_authorization<P: AsRef<Path>>(&self, path: P) -> Result<()> {
         use std::fs::create_dir_all;
@@ -1412,95 +1499,5 @@ impl<'a> AcmeAccountOrderAuthChallenge<'a> {
     /// Returns key_authorization
     pub fn key_authorization(&self) -> &str {
         &self.key_authorization
-    }
-
-    /// Triggers validation.
-    pub fn validate(&self) -> Result<()> {
-        info!("[挑战验证] -> Triggering {} validation", self.ctype);
-
-        // 获取请求的url
-        //let url = self.url_for(resource).ok_or(format!("URL for resource: {} not found", resource))?;
-
-        // 获取挑战签名...
-        let challenge_token = self.signature().unwrap();
-        debug!("validate info: [challenge_token: {:?}]", challenge_token);
-
-        let payload = {
-            let map = {
-                let mut map: HashMap<String, Value> = HashMap::new();
-                map.insert("keyAuthorization".to_owned(), to_value(challenge_token)?);
-                map
-            };
-            self.account.directory().jws(&self.url, self.account.private_key(), map, Some(self.account.account_url.clone()))?
-        };
-
-        debug!("[COAM][####################][+++][&self.url: {}]", &self.url);
-        debug!("[COAM][####################][+++][payload: {}]", payload);
-
-        // 添加 [application/jose+json] 请求头
-        let mut headers = HeaderMap::new();
-        //headers.set(ContentType::json());
-        headers.insert(reqwest::header::CONTENT_TYPE, "application/jose+json".parse().unwrap());
-
-        // 发起请求...
-        let client = Client::new();
-        //let mut resp = client.post(&self.url).body(&payload[..]).send()?;
-        let mut resp = client.post(&self.url)
-            .headers(headers)
-            .body(payload)
-            .send()?;
-
-        let mut res_json: Value = {
-            let mut res_content = String::new();
-            resp.read_to_string(&mut res_content)?;
-            from_str(&res_content)?
-        };
-
-        debug!("[COAM][####################][+++][res_json: {}]", res_json);
-        debug!("[COAM][####################][+++][status: {}]", resp.status());
-
-        if resp.status() != StatusCode::OK {
-            error!("[###][####################][---][res_json: {}]", res_json);
-            error!("[###][####################][---][status: {}]", resp.status());
-            return Err(ErrorKind::AcmeServerError(res_json).into());
-        }
-
-        loop {
-            // 验证挑战状态
-            let status = res_json.as_object()
-                .and_then(|o| o.get("status"))
-                .and_then(|s| s.as_str())
-                .ok_or("Status not found")?
-                .to_owned();
-
-            debug!("[COAM][####################][LOOP][res_json: {}]", res_json);
-            debug!("[COAM][####################][LOOP][status: {}]", status);
-
-            // 区分验证状态...
-            if status == "pending" {
-                info!("[循环挑战验证状态] -> [challenge validate status: pending], trying again...");
-
-                // 请求结果
-                let mut resp = client.get(&self.url).send()?;
-                res_json = {
-                    let mut res_content = String::new();
-                    resp.read_to_string(&mut res_content)?;
-                    from_str(&res_content)?
-                };
-
-                warn!("[challenge validate status: pending][res_json: {}]", res_json);
-            } else if status == "valid" {
-                info!("[循环挑战验证状态] -> [challenge validate status: valid], trying next...");
-                return Ok(());
-            } else if status == "invalid" {
-                error!("[循环挑战验证状态] -> [challenge validate status: invalid], trying ended...");
-                return Err(ErrorKind::AcmeServerError(res_json).into());
-            }
-
-            // 循环等待验证...
-            use std::thread::sleep;
-            use std::time::Duration;
-            sleep(Duration::from_secs(2));
-        }
     }
 }
