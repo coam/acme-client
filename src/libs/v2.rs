@@ -894,6 +894,80 @@ impl AcmeOrderData {
 
         Ok(acme_order_auth_list)
     }
+
+    /// Creates a new identifier authorization object for domain
+    pub fn verify_acme_order_auth_list(&self, acme_name: String, acme_account: &AcmeAccountData, acme_order_auth_list: &Vec<AccountAuthData>) -> Result<String> {
+        // 依次发起挑战...
+        for auth_acme_order_data in acme_order_auth_list.iter() {
+            info!("[###]循环处理挑战订单: auth_acme_order_data: {:?}", auth_acme_order_data);
+
+            // 依次读取授权数据
+            let auth_domain_identifier = auth_acme_order_data.auth_domain_identifier.clone();
+            let auth_dns_challenge = auth_acme_order_data.auth_dns_challenge.clone();
+            info!("[####]循环处理-挑战订单: auth_domain_identifier: {:?}", auth_domain_identifier);
+            info!("[####]循环处理-调整数据: auth_dns_challenge: {:?}", auth_dns_challenge);
+
+            // 判断是否已经过验证
+            if auth_dns_challenge.status == "valid" {
+                warn!("该挑战已验证,取消重复发起挑战验证请求!");
+                continue;
+            }
+
+            // 获取挑战...
+            let token = auth_dns_challenge.token.clone();
+            let types = auth_dns_challenge.types.clone();
+            let url = auth_dns_challenge.url.clone();
+            let auth_dns_challenge_token = auth_dns_challenge.auth_challenge_token.clone().unwrap();
+            let key_authorization = auth_dns_challenge.key_authorization.clone().unwrap();
+
+            // 获取挑战签名...
+            //let signature = auth_dns_challenge.signature().unwrap();
+            let signature = auth_dns_challenge_token;
+
+            // 延时计数...
+            let mut try_ts = 0;
+
+            // 循环验证...
+            'outer: loop {
+                // 递增延时计数...
+                try_ts += 20;
+
+                info!("[循环延时验证,请耐心等待...][acme_name: {}] 尝试延时验证批次[try_ts: {}]", acme_name, try_ts);
+
+                // 获取挑战签名...
+                let challenge = AcmeAccountOrderAuthChallenge {
+                    account: acme_account,
+                    ctype: types.clone(),
+                    url: url.clone(),
+                    token: token.clone(),
+                    key_authorization: key_authorization.clone(),
+                };
+
+                // 发起授权验证...
+                let dns_challenge_results = challenge.validate();
+
+                // 如果验证成功,则跳出验证请求...
+                if let Ok(()) = dns_challenge_results {
+                    warn!("[验证完成,跳出循环验证请求][acme_name: {}][try_ts: {}]", acme_name, try_ts);
+                    break 'outer;
+                }
+
+                // 延时等待...
+                info!("[延时验证,请耐心等待 20 秒...]");
+                std::thread::sleep(std::time::Duration::from_secs(20));
+
+                // 超时跳出...
+                if try_ts > 120 {
+                    error!("[验证超时失败][acme_name: {}][try_ts: {}]", acme_name, try_ts);
+                    return Err(ErrorKind::AcmeServerError(from_str("验证超时失败!")?).into());
+                }
+
+                warn!("[域名证书][ACME][authorization][acme_name: {}][signature: {:?}]", acme_name, signature);
+            }
+        }
+
+        Ok("挑战列表验证成功!".to_string())
+    }
 }
 
 // 订单接口数据
