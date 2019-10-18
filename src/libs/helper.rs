@@ -28,7 +28,7 @@ pub fn b64(data: &[u8]) -> String {
 
 
 /// Reads PKey from Path.
-pub fn read_pkey<P: AsRef<Path>>(path: P) -> Result<PKey<openssl::pkey::Private>> {
+pub fn read_private_key<P: AsRef<Path>>(path: P) -> Result<PKey<openssl::pkey::Private>> {
     let mut file = File::open(path)?;
     let mut content = Vec::new();
     file.read_to_end(&mut content)?;
@@ -42,7 +42,7 @@ pub fn read_pkey<P: AsRef<Path>>(path: P) -> Result<PKey<openssl::pkey::Private>
 /// This function will generate a CSR and sign it with PKey.
 ///
 /// Returns X509Req and PKey used to sign X509Req.
-pub fn gen_csr(pkey: &PKey<openssl::pkey::Private>, domains: &[&str]) -> Result<X509Req> {
+pub fn gen_csr(private_key: &PKey<openssl::pkey::Private>, domains: &[&str]) -> Result<X509Req> {
     if domains.is_empty() {
         return Err("You need to supply at least one or more domain names".into());
     }
@@ -70,8 +70,8 @@ pub fn gen_csr(pkey: &PKey<openssl::pkey::Private>, domains: &[&str]) -> Result<
         builder.add_extensions(&stack)?;
     }
 
-    builder.set_pubkey(&pkey)?;
-    builder.sign(pkey, MessageDigest::sha256())?;
+    builder.set_pubkey(&private_key)?;
+    builder.sign(private_key, MessageDigest::sha256())?;
 
     Ok(builder.build())
 }

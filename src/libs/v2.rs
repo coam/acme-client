@@ -289,7 +289,7 @@ use serde_json::{Value, from_str, to_string, to_value};
 use serde::Serialize;
 
 // dependence
-use libs::helper::{gen_key, b64, read_pkey, gen_csr};
+use libs::helper::{gen_key, b64, read_private_key, gen_csr};
 use libs::error::{Result, ErrorKind};
 
 /// Default Let's Encrypt auth_directory URL to configure client.
@@ -321,13 +321,13 @@ pub struct AcmeAuthDirectory {
 pub struct AcmeAccountData {
     auth_directory: AcmeAuthDirectory,
     account_url: String,
-    pkey: PKey<openssl::pkey::Private>,
+    private_key: PKey<openssl::pkey::Private>,
 }
 
 /// Helper to register an account.
 pub struct AcmeAccountRegistration {
     auth_directory: AcmeAuthDirectory,
-    pkey: Option<PKey<openssl::pkey::Private>>,
+    private_key: Option<PKey<openssl::pkey::Private>>,
     email: Option<String>,
     contact: Option<Vec<String>>,
     agreement: Option<String>,
@@ -337,7 +337,7 @@ pub struct AcmeAccountRegistration {
 pub struct AcmeCertificateSigner<'a> {
     account: &'a AcmeAccountData,
     domains: &'a [&'a str],
-    pkey: Option<PKey<openssl::pkey::Private>>,
+    private_key: Option<PKey<openssl::pkey::Private>>,
     csr: Option<X509Req>,
 }
 
@@ -345,7 +345,7 @@ pub struct AcmeCertificateSigner<'a> {
 pub struct AcmeSignedCertificate {
     cert: X509,
     csr: X509Req,
-    pkey: PKey<openssl::pkey::Private>,
+    private_key: PKey<openssl::pkey::Private>,
 }
 
 impl AcmeAuthDirectory {
@@ -415,7 +415,7 @@ impl AcmeAuthDirectory {
     pub fn account_registration(self) -> AcmeAccountRegistration {
         AcmeAccountRegistration {
             auth_directory: self,
-            pkey: None,
+            private_key: None,
             email: None,
             contact: None,
             agreement: None,
@@ -437,10 +437,10 @@ impl AcmeAuthDirectory {
             .map(|nonce| nonce.to_string())
     }
 
-    /// Makes a new post request to directory, signs payload with pkey.
+    /// Makes a new post request to directory, signs payload with private_key.
     ///
     /// Returns status code and Value object from reply.
-    fn request<T: Serialize>(&self, pkey: &PKey<openssl::pkey::Private>, resource: &str, payload: T, kid: Option<String>) -> Result<(StatusCode, Value, HeaderMap)> {
+    fn request<T: Serialize>(&self, private_key: &PKey<openssl::pkey::Private>, resource: &str, payload: T, kid: Option<String>) -> Result<(StatusCode, Value, HeaderMap)> {
         let mut json = to_value(&payload)?;
 
         //let resource_json: Value = to_value(resource)?;
@@ -452,7 +452,7 @@ impl AcmeAuthDirectory {
         let url = self.url_for(resource).ok_or(format!("URL for resource: {} not found", resource))?;
 
         // 获取 jws
-        let jws = self.jws(url, pkey, json, kid)?;
+        let jws = self.jws(url, private_key, json, kid)?;
 
         trace!("[发起请求->request()][url: {:?}][jws: {:?}]", url, jws);
 
@@ -486,7 +486,7 @@ impl AcmeAuthDirectory {
     }
 
     /// Makes a Flattened JSON Web Signature from payload
-    pub fn jws<T: Serialize>(&self, url: &str, pkey: &PKey<openssl::pkey::Private>, payload: T, kid: Option<String>) -> Result<String> {
+    pub fn jws<T: Serialize>(&self, url: &str, private_key: &PKey<openssl::pkey::Private>, payload: T, kid: Option<String>) -> Result<String> {
         let nonce = self.get_nonce()?;
         let mut data: HashMap<String, Value> = HashMap::new();
 
@@ -500,7 +500,7 @@ impl AcmeAuthDirectory {
         if let Some(_kid) = kid {
             header.insert("kid".to_owned(), to_value(_kid)?);
         } else {
-            header.insert("jwk".to_owned(), self.jwk(pkey)?);
+            header.insert("jwk".to_owned(), self.jwk(private_key)?);
         }
         //data.insert("header".to_owned(), to_value(&header)?);
 
@@ -519,7 +519,7 @@ impl AcmeAuthDirectory {
 
         // signature: b64 of hash of signature of {proctected64}.{payload64}
         data.insert("signature".to_owned(), {
-            let mut signer = Signer::new(MessageDigest::sha256(), &pkey)?;
+            let mut signer = Signer::new(MessageDigest::sha256(), &private_key)?;
             signer.update(&format!("{}.{}", protected64, payload64).into_bytes())?;
             to_value(b64(&signer.sign_to_vec()?))?
         });
@@ -531,8 +531,8 @@ impl AcmeAuthDirectory {
     }
 
     /// Returns jwk field of jws header
-    pub fn jwk(&self, pkey: &PKey<openssl::pkey::Private>) -> Result<Value> {
-        let rsa = pkey.rsa()?;
+    pub fn jwk(&self, private_key: &PKey<openssl::pkey::Private>) -> Result<Value> {
+        let rsa = private_key.rsa()?;
         let mut jwk: HashMap<String, String> = HashMap::new();
         jwk.insert("e".to_owned(), b64(&rsa.e().to_vec()));
         jwk.insert("kty".to_owned(), "RSA".to_owned());
@@ -638,7 +638,7 @@ impl AcmeAccountData {
             // This seems really cryptic but it's not
             // https://tools.ietf.org/html/draft-ietf-acme-acme-05#section-7.1
             // key-authz = token || '.' || base64url(JWK\_Thumbprint(accountKey))
-            let thumbprint = b64(&hash(MessageDigest::sha256(), &to_string(&self.directory().jwk(self.pkey())?)?.into_bytes())?);
+            let thumbprint = b64(&hash(MessageDigest::sha256(), &to_string(&self.directory().jwk(self.private_key())?)?.into_bytes())?);
             let key_authorization = format!("{}.{}", auth_dns_challenge.token, thumbprint);
             //let challenge_token = b64(&hash(MessageDigest::sha256(), key_authorization.as_bytes())?);
 
@@ -690,7 +690,7 @@ impl AcmeAccountData {
         AcmeCertificateSigner {
             account: self,
             domains: domains,
-            pkey: None,
+            private_key: None,
             csr: None,
         }
     }
@@ -713,7 +713,7 @@ impl AcmeAccountData {
             let mut map = HashMap::new();
             map.insert("certificate".to_owned(), b64(&cert.to_der()?));
 
-            self.directory().request(self.pkey(), "revoke-cert", map, None)?
+            self.directory().request(self.private_key(), "revoke-cert", map, None)?
         };
 
         match status {
@@ -727,7 +727,7 @@ impl AcmeAccountData {
 
     /// Writes account private key to a writer
     pub fn write_private_key<W: Write>(&self, writer: &mut W) -> Result<()> {
-        Ok(writer.write_all(&self.pkey().private_key_to_pem_pkcs8()?)?)
+        Ok(writer.write_all(&self.private_key().private_key_to_pem_pkcs8()?)?)
     }
 
     /// Saves account private key to a file
@@ -737,8 +737,8 @@ impl AcmeAccountData {
     }
 
     /// Returns a reference to account private key
-    pub fn pkey(&self) -> &PKey<openssl::pkey::Private> {
-        &self.pkey
+    pub fn private_key(&self) -> &PKey<openssl::pkey::Private> {
+        &self.private_key
     }
 
     /// Returns a reference to directory used to create account
@@ -776,14 +776,14 @@ impl AcmeAccountRegistration {
     }
 
     /// Sets account private key. A new key will be generated if it's not set.
-    pub fn pkey(mut self, pkey: PKey<openssl::pkey::Private>) -> AcmeAccountRegistration {
-        self.pkey = Some(pkey);
+    pub fn private_key(mut self, private_key: PKey<openssl::pkey::Private>) -> AcmeAccountRegistration {
+        self.private_key = Some(private_key);
         self
     }
 
     /// Sets PKey from a PEM formatted file.
-    pub fn pkey_from_file<P: AsRef<Path>>(mut self, path: P) -> Result<AcmeAccountRegistration> {
-        self.pkey = Some(read_pkey(path)?);
+    pub fn private_key_from_file<P: AsRef<Path>>(mut self, path: P) -> Result<AcmeAccountRegistration> {
+        self.private_key = Some(read_private_key(path)?);
         Ok(self)
     }
 
@@ -808,9 +808,9 @@ impl AcmeAccountRegistration {
 
         info!("[发送账户注册请求参数][resources: newAccount][map: {:?}]", map);
 
-        let pkey = self.pkey.unwrap_or(gen_key()?);
+        let private_key = self.private_key.unwrap_or(gen_key()?);
 
-        let (status, resp, resp_headers) = self.auth_directory.request(&pkey, "newAccount", map, None)?;
+        let (status, resp, resp_headers) = self.auth_directory.request(&private_key, "newAccount", map, None)?;
 
         debug!("[请求账户注册结果][status: {:?}][resp: {:?}][resp_headers: {:?}]", status, resp, resp_headers);
 
@@ -827,7 +827,7 @@ impl AcmeAccountRegistration {
         Ok(AcmeAccountData {
             auth_directory: self.auth_directory,
             account_url: String::from(account_url.to_str().unwrap()),
-            pkey: pkey,
+            private_key: private_key,
         })
     }
 }
@@ -846,7 +846,7 @@ pub struct AcmeOrderData {
     pub order_url: String,
     pub finalize_url: String,
     pub certificate: Option<String>,
-    //pkey: PKey<openssl::pkey::Private>,
+    //private_key: PKey<openssl::pkey::Private>,
     pub authorizations: Vec<String>,
     pub identifiers: Vec<AcmeOrderDataIdentifier>,
 }
@@ -906,10 +906,10 @@ impl OrderCreator {
 
         info!("[发起创建订单请求参数][resources: createOrder][map: {:?}]", map);
 
-        let pkey = &account.pkey;
+        let private_key = &account.private_key;
         let account_url = &account.account_url;
 
-        let (status, resp, resp_headers) = account.directory().request(&pkey, "newOrder", map, Some(account_url.clone()))?;
+        let (status, resp, resp_headers) = account.directory().request(&private_key, "newOrder", map, Some(account_url.clone()))?;
 
         debug!("[创建订单请求结果][status: {:?}][resp: {:?}][resp_headers: {:?}]", status, resp, resp_headers);
 
@@ -938,14 +938,14 @@ impl OrderCreator {
 
 impl<'a> AcmeCertificateSigner<'a> {
     /// Set PKey of CSR
-    pub fn pkey(mut self, pkey: PKey<openssl::pkey::Private>) -> AcmeCertificateSigner<'a> {
-        self.pkey = Some(pkey);
+    pub fn private_key(mut self, private_key: PKey<openssl::pkey::Private>) -> AcmeCertificateSigner<'a> {
+        self.private_key = Some(private_key);
         self
     }
 
     /// Load PEM formatted PKey from file
-    pub fn pkey_from_file<P: AsRef<Path>>(mut self, path: P) -> Result<AcmeCertificateSigner<'a>> {
-        self.pkey = Some(read_pkey(path)?);
+    pub fn private_key_from_file<P: AsRef<Path>>(mut self, path: P) -> Result<AcmeCertificateSigner<'a>> {
+        self.private_key = Some(read_private_key(path)?);
         Ok(self)
     }
 
@@ -956,8 +956,8 @@ impl<'a> AcmeCertificateSigner<'a> {
     }
 
     /// Load PKey and CSR from file
-    pub fn csr_from_file<P: AsRef<Path>>(mut self, pkey_path: P, csr_path: P) -> Result<AcmeCertificateSigner<'a>> {
-        self.pkey = Some(read_pkey(pkey_path)?);
+    pub fn csr_from_file<P: AsRef<Path>>(mut self, private_key_path: P, csr_path: P) -> Result<AcmeCertificateSigner<'a>> {
+        self.private_key = Some(read_private_key(private_key_path)?);
         let content = {
             let mut file = File::open(csr_path)?;
             let mut content = Vec::new();
@@ -972,11 +972,11 @@ impl<'a> AcmeCertificateSigner<'a> {
     /// create certificate.
     pub fn create_certificate(mut self) -> Result<AcmeCertificateSigner<'a>> {
         // 创建证书...
-        let pkey = self.pkey.unwrap_or(gen_key().unwrap());
-        let csr = self.csr.unwrap_or(gen_csr(&pkey, self.domains).unwrap());
+        let private_key = self.private_key.unwrap_or(gen_key().unwrap());
+        let csr = self.csr.unwrap_or(gen_csr(&private_key, self.domains).unwrap());
 
         // 创建证书...
-        self.pkey = Some(pkey);
+        self.private_key = Some(private_key);
         self.csr = Some(csr);
 
         Ok(self)
@@ -998,7 +998,7 @@ impl<'a> AcmeCertificateSigner<'a> {
 
         // 设置载荷...
         let payload = {
-            self.account.directory().jws(finalize_url, self.account.pkey(), map.clone(), Some(self.account.account_url.clone()))?
+            self.account.directory().jws(finalize_url, self.account.private_key(), map.clone(), Some(self.account.account_url.clone()))?
         };
 
         debug!("[COAM][####################][+++][finalize_url: {}]", finalize_url);
@@ -1011,7 +1011,7 @@ impl<'a> AcmeCertificateSigner<'a> {
 
         // 发起请求...
         let client = Client::new();
-        //let jws = self.account.directory().jws(finalize_url, self.account.pkey(), map, Some(self.account.account_url.clone()))?
+        //let jws = self.account.directory().jws(finalize_url, self.account.private_key(), map, Some(self.account.account_url.clone()))?
         let mut res = client.post(finalize_url)
             .headers(headers)
             //.body(&jws[..])
@@ -1103,7 +1103,7 @@ impl<'a> AcmeCertificateSigner<'a> {
         Ok(AcmeSignedCertificate {
             cert: cert,
             csr: self.csr.unwrap(),
-            pkey: self.pkey.unwrap(),
+            private_key: self.private_key.unwrap(),
         })
     }
 }
@@ -1203,7 +1203,7 @@ impl AcmeSignedCertificate {
 
     /// Writes private key used to sign certificate to a writer
     pub fn write_private_key<W: Write>(&self, writer: &mut W) -> Result<()> {
-        Ok(writer.write_all(&self.pkey().private_key_to_pem_pkcs8()?)?)
+        Ok(writer.write_all(&self.private_key().private_key_to_pem_pkcs8()?)?)
     }
 
     /// Writes CSR used to sign certificateto a writer
@@ -1221,9 +1221,9 @@ impl AcmeSignedCertificate {
         &self.csr
     }
 
-    /// Returns reference to pkey used to sign certificate
-    pub fn pkey(&self) -> &PKey<openssl::pkey::Private> {
-        &self.pkey
+    /// Returns reference to private_key used to sign certificate
+    pub fn private_key(&self) -> &PKey<openssl::pkey::Private> {
+        &self.private_key
     }
 }
 
@@ -1331,7 +1331,7 @@ impl<'a> AcmeAccountOrderAuthChallenge<'a> {
                 map.insert("keyAuthorization".to_owned(), to_value(challenge_token)?);
                 map
             };
-            self.account.directory().jws(&self.url, self.account.pkey(), map, Some(self.account.account_url.clone()))?
+            self.account.directory().jws(&self.url, self.account.private_key(), map, Some(self.account.account_url.clone()))?
         };
 
         debug!("[COAM][####################][+++][&self.url: {}]", &self.url);

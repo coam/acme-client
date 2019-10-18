@@ -281,10 +281,10 @@ use openssl::x509::{X509, X509Req};
 
 use reqwest::{Client, StatusCode};
 
-use libs::helper::{gen_key, b64, read_pkey, gen_csr};
+use libs::helper::{gen_key, b64, read_private_key, gen_csr};
 use libs::error::{Result, ErrorKind};
 
-//use helper::{gen_key, b64, read_pkey, gen_csr};
+//use helper::{gen_key, b64, read_private_key, gen_csr};
 //use error::{Result, ErrorKind};
 
 use serde_json::{Value, from_str, to_string, to_value};
@@ -690,7 +690,7 @@ impl AcmeAccountRegistration {
 
     /// Sets PKey from a PEM formatted file.
     pub fn pkey_from_file<P: AsRef<Path>>(mut self, path: P) -> Result<AcmeAccountRegistration> {
-        self.pkey = Some(read_pkey(path)?);
+        self.pkey = Some(read_private_key(path)?);
         Ok(self)
     }
 
@@ -740,7 +740,7 @@ impl<'a> AcmeCertificateSigner<'a> {
 
     /// Load PEM formatted PKey from file
     pub fn pkey_from_file<P: AsRef<Path>>(mut self, path: P) -> Result<AcmeCertificateSigner<'a>> {
-        self.pkey = Some(read_pkey(path)?);
+        self.pkey = Some(read_private_key(path)?);
         Ok(self)
     }
 
@@ -755,7 +755,7 @@ impl<'a> AcmeCertificateSigner<'a> {
                                          pkey_path: P,
                                          csr_path: P)
                                          -> Result<AcmeCertificateSigner<'a>> {
-        self.pkey = Some(read_pkey(pkey_path)?);
+        self.pkey = Some(read_private_key(pkey_path)?);
         let content = {
             let mut file = File::open(csr_path)?;
             let mut content = Vec::new();
