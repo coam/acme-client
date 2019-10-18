@@ -584,100 +584,17 @@ pub struct AcmeAccountAuthorizationChallengeValidationRecord {
 }
 
 impl AcmeAccountData {
-    /// Creates a new identifier authorization object for domain
-    pub fn get_auth_acme_order_list(&self, order: &AcmeOrderData) -> Result<Vec<AccountAuthData>> {
-        info!("[循环验证 ACME 订单] -> Sending authorization request for order: {:?}", order);
-
-        // 授权列表...
-        let mut auth_acme_order_list = Vec::<AccountAuthData>::new();
-
-        // 循环授权验证...
-        for authorization in &order.authorizations {
-            println!("\n");
-            info!("[开始发起 ACME 订单验证挑战] -> For send authorization request for [authorization: {:?}]", authorization);
-
-            // 发起授权验证...
-            let client = Client::new();
-            //let mut resp = client.get(authorization).send()?;
-            let mut auth_resp = client.get(authorization).send()?;
-
-            // [How do you make a GET request in Rust?](https://stackoverflow.com/questions/43222429/how-do-you-make-a-get-request-in-rust)
-            // copy the response body directly to stdout
-            //std::io::copy(&mut auth_resp, &mut std::io::stdout())?;
-
-            trace!("[####################][+++][status: {:?}]", auth_resp.status());
-            trace!("[####################][+++]Headers:\n{:?}", auth_resp.headers());
-            trace!("[####################][+++]auth_resp: \n{:?}", auth_resp);
-
-            // 获取授权数据...
-            let mut account_auth_response: AccountAuthResponse = auth_resp.json()?;
-            info!("[账户订单验证挑战][+++]auth_resp.account_auth_response: \n{:?}", account_auth_response);
-
-            // 依次读取授权数据
-            let auth_domain_identifier = account_auth_response.identifier.clone();
-            let account_auth_challenges = account_auth_response.challenges.clone();
-            debug!("[####]循环验证TXT解析数据: auth_domain_identifier: {:?}", auth_domain_identifier);
-            debug!("[####]循环验证TXT解析数据: account_auth_challenges: {:?}", account_auth_challenges);
-
-            // 过滤查询 dns-01 挑战...
-            let dns_challenge = account_auth_challenges.iter().find(|challenge| challenge.types == "dns-01");
-            if let Some(challenge) = dns_challenge {
-                info!("[已匹配挑战: dns-01] in challenges: {:?}", challenge);
-            } else {
-                panic!("[未匹配挑战: dns-01] -- Find none [dns-01] in challenges");
-            }
-
-            // 获取 [DNS-01] 授权挑战...
-            let mut auth_dns_challenge = dns_challenge.unwrap().clone();
-
-            // 获取挑战...
-            let token = auth_dns_challenge.token.clone();
-            let types = auth_dns_challenge.types.clone();
-            let url = auth_dns_challenge.url.clone();
-
-            // This seems really cryptic but it's not
-            // https://tools.ietf.org/html/draft-ietf-acme-acme-05#section-7.1
-            // key-authz = token || '.' || base64url(JWK\_Thumbprint(accountKey))
-            let thumbprint = b64(&hash(MessageDigest::sha256(), &to_string(&self.directory().jwk(self.private_key())?)?.into_bytes())?);
-            let key_authorization = format!("{}.{}", auth_dns_challenge.token, thumbprint);
-            //let challenge_token = b64(&hash(MessageDigest::sha256(), key_authorization.as_bytes())?);
-
-            // 获取挑战签名...
-            let challenge = AcmeAccountOrderAuthChallenge {
-                account: self,
-                ctype: types,
-                url: url,
-                token: token,
-                key_authorization: key_authorization.clone(),
-            };
-            let auth_challenge_token = challenge.signature().unwrap();
-            info!("[域名挑战验证签名 `dns-01` TXT解析值] authorization challenge info: [auth_challenge_token: {:?}][thumbprint: {:?}][key_authorization: {:?}]", auth_challenge_token, thumbprint, key_authorization);
-
-            // 保存授权...
-            auth_dns_challenge.key_authorization = Some(key_authorization);
-            auth_dns_challenge.auth_challenge_token = Some(auth_challenge_token);
-
-            // 授权挑战数据...
-            let account_auth_data = AccountAuthData { auth_domain_identifier, auth_dns_challenge };
-
-            // 推入授权列表...
-            auth_acme_order_list.push(account_auth_data);
-        }
-
-        Ok(auth_acme_order_list)
+    /// load a signed certificate from pem formatted file
+    pub fn get_certificate_from_file<P: AsRef<Path>>(&self, path: P) -> Result<X509> {
+        let content = {
+            let mut file = File::open(path)?;
+            let mut content = Vec::new();
+            file.read_to_end(&mut content)?;
+            content
+        };
+        let cert = X509::from_pem(&content)?;
+        Ok(cert)
     }
-
-    ///// load a signed certificate from pem formatted file
-    //pub fn get_certificate_from_file<P: AsRef<Path>>(&self, path: P) -> Result<X509> {
-    //    let content = {
-    //        let mut file = File::open(path)?;
-    //        let mut content = Vec::new();
-    //        file.read_to_end(&mut content)?;
-    //        content
-    //    };
-    //    let cert = X509::from_pem(&content)?;
-    //    Ok(cert)
-    //}
 
     /// Creates a new `AcmeCertificateSigner` helper to sign a certificate for list of domains.
     ///
@@ -849,6 +766,134 @@ pub struct AcmeOrderData {
     //private_key: PKey<openssl::pkey::Private>,
     pub authorizations: Vec<String>,
     pub identifiers: Vec<AcmeOrderDataIdentifier>,
+    // 获取订单授权挑战
+    pub auth_list: Vec<AccountAuthResponse>,
+}
+
+impl AcmeOrderData {
+    /// Creates a new identifier authorization object for domain
+    pub fn load_acme_order_auth_list(&mut self) -> Result<&AcmeOrderData> {
+        info!("[循环验证 ACME 订单] -> Sending authorization request for order: {:?}", self);
+
+        // 循环授权验证...
+        for authorization in &self.authorizations {
+            println!("\n");
+            info!("[开始发起 ACME 订单验证挑战] -> For send authorization request for [authorization: {:?}]", authorization);
+
+            // 发起授权验证...
+            let client = Client::new();
+            //let mut resp = client.get(authorization).send()?;
+            let mut auth_resp = client.get(authorization).send()?;
+
+            // [How do you make a GET request in Rust?](https://stackoverflow.com/questions/43222429/how-do-you-make-a-get-request-in-rust)
+            // copy the response body directly to stdout
+            //std::io::copy(&mut auth_resp, &mut std::io::stdout())?;
+
+            trace!("[####################][+++][status: {:?}]", auth_resp.status());
+            trace!("[####################][+++]Headers:\n{:?}", auth_resp.headers());
+            trace!("[####################][+++]auth_resp: \n{:?}", auth_resp);
+
+            // 获取授权数据...
+            let mut account_auth_response: AccountAuthResponse = auth_resp.json()?;
+            info!("[账户订单验证挑战][+++]auth_resp.account_auth_response: \n{:?}", account_auth_response);
+
+            // 依次读取授权数据
+            let auth_domain_identifier = account_auth_response.identifier.clone();
+            let account_auth_challenges = account_auth_response.challenges.clone();
+            debug!("[####]循环验证TXT解析数据: auth_domain_identifier: {:?}", auth_domain_identifier);
+            debug!("[####]循环验证TXT解析数据: account_auth_challenges: {:?}", account_auth_challenges);
+
+            // 过滤查询 dns-01 挑战...
+            let dns_challenge = account_auth_challenges.iter().find(|challenge| challenge.types == "dns-01");
+            if let Some(challenge) = dns_challenge {
+                info!("[已匹配挑战: dns-01] in challenges: {:?}", challenge);
+            } else {
+                panic!("[未匹配挑战: dns-01] -- Find none [dns-01] in challenges");
+            }
+
+            // 获取 [DNS-01] 授权挑战...
+            let mut auth_dns_challenge = dns_challenge.unwrap().clone();
+
+            // 获取挑战...
+            let token = auth_dns_challenge.token.clone();
+            let types = auth_dns_challenge.types.clone();
+            let url = auth_dns_challenge.url.clone();
+
+            // 授权挑战数据...
+            //let account_auth_data = AccountAuthData { auth_domain_identifier, auth_dns_challenge };
+
+            // 推入授权列表...
+            self.auth_list.push(account_auth_response);
+        }
+
+        Ok(self)
+    }
+
+    /// Creates a new identifier authorization object for domain
+    pub fn get_acme_order_auth_list(&self, acme_account: &AcmeAccountData) -> Result<Vec<AccountAuthData>> {
+        info!("[循环验证 ACME 订单] -> Sending authorization request for order: {:?}", self);
+
+        // 授权列表...
+        let mut acme_order_auth_list = Vec::<AccountAuthData>::new();
+
+        // 循环授权挑战验证列表...
+        for account_auth_response in &self.auth_list {
+            println!("\n");
+            info!("[开始发起 ACME 订单验证挑战] -> For send authorization request for [account_auth_response: {:?}]", account_auth_response);
+
+            // 依次读取授权数据
+            let auth_domain_identifier = account_auth_response.identifier.clone();
+            let account_auth_challenges = account_auth_response.challenges.clone();
+            debug!("[####]循环验证TXT解析数据: auth_domain_identifier: {:?}", auth_domain_identifier);
+            debug!("[####]循环验证TXT解析数据: account_auth_challenges: {:?}", account_auth_challenges);
+
+            // 过滤查询 dns-01 挑战...
+            let dns_challenge = account_auth_challenges.iter().find(|challenge| challenge.types == "dns-01");
+            if let Some(challenge) = dns_challenge {
+                info!("[已匹配挑战: dns-01] in challenges: {:?}", challenge);
+            } else {
+                panic!("[未匹配挑战: dns-01] -- Find none [dns-01] in challenges");
+            }
+
+            // 获取 [DNS-01] 授权挑战...
+            let mut auth_dns_challenge = dns_challenge.unwrap().clone();
+
+            // 获取挑战...
+            let token = auth_dns_challenge.token.clone();
+            let types = auth_dns_challenge.types.clone();
+            let url = auth_dns_challenge.url.clone();
+
+            // This seems really cryptic but it's not
+            // https://tools.ietf.org/html/draft-ietf-acme-acme-05#section-7.1
+            // key-authz = token || '.' || base64url(JWK\_Thumbprint(accountKey))
+            let key_thumbprint = b64(&hash(MessageDigest::sha256(), &to_string(&acme_account.directory().jwk(acme_account.private_key())?)?.into_bytes())?);
+            let key_authorization = format!("{}.{}", auth_dns_challenge.token, key_thumbprint);
+            //let challenge_token = b64(&hash(MessageDigest::sha256(), key_authorization.as_bytes())?);
+
+            // 获取挑战签名...
+            let challenge = AcmeAccountOrderAuthChallenge {
+                account: acme_account,
+                ctype: types,
+                url: url,
+                token: token,
+                key_authorization: key_authorization.clone(),
+            };
+            let auth_challenge_token = challenge.signature().unwrap();
+            info!("[域名挑战验证签名 `dns-01` TXT解析值] authorization challenge info: [auth_challenge_token: {:?}][key_thumbprint: {:?}][key_authorization: {:?}]", auth_challenge_token, key_thumbprint, key_authorization);
+
+            // 保存授权...
+            auth_dns_challenge.key_authorization = Some(key_authorization);
+            auth_dns_challenge.auth_challenge_token = Some(auth_challenge_token);
+
+            // 授权挑战数据...
+            let account_auth_data = AccountAuthData { auth_domain_identifier, auth_dns_challenge };
+
+            // 推入授权列表...
+            acme_order_auth_list.push(account_auth_data);
+        }
+
+        Ok(acme_order_auth_list)
+    }
 }
 
 // 订单接口数据
@@ -888,22 +933,6 @@ impl OrderCreator {
         // 创建订单域名...
         map.insert("identifiers".to_owned(), &self.order_identifiers);
 
-        // 手动创建...
-        //let point = vec![
-        //    AcmeOrderDataIdentifier {
-        //        types: String::from("dns"),
-        //        value: String::from("copen.io"),
-        //    }, AcmeOrderDataIdentifier {
-        //        types: String::from("dns"),
-        //        value: String::from("*.copen.io"),
-        //    }
-        //];
-        //let serialized = serde_json::to_string(&point).unwrap();
-        //map.insert("identifiers".to_owned(), point);
-
-        // Convert the Point to a JSON string.
-        //let serialized = serde_json::to_string(&self.order_identifiers).unwrap();
-
         info!("[发起创建订单请求参数][resources: createOrder][map: {:?}]", map);
 
         let private_key = &account.private_key;
@@ -932,6 +961,7 @@ impl OrderCreator {
             certificate: None,
             authorizations: order_response.authorizations,
             identifiers: order_response.identifiers,
+            auth_list: Vec::<AccountAuthResponse>::new(),
         })
     }
 }
