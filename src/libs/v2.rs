@@ -968,6 +968,73 @@ impl AcmeOrderData {
 
         Ok("挑战列表验证成功!".to_string())
     }
+
+    /// finalize_order.
+    /// CSR and PKey will be generated if it doesn't set or loaded first.
+    pub fn finalize_order(&mut self, acme_certificate_signer: &AcmeCertificateSigner) -> Result<&AcmeOrderData> {
+        // 获取请求的url
+        //let url = acme_certificate_signer.account.directory().url_for(resource).ok_or(format!("URL for resource: {} not found", resource))?;
+        //let url = &order.order_url;
+        let finalize_url = &self.finalize_url;
+
+        // request finalize order...
+        let mut map = HashMap::new();
+        //map.insert("resource".to_owned(), "new-cert".to_owned());
+        //map.insert("resource".to_owned(), resource.to_owned());
+        map.insert("csr".to_owned(), b64(&acme_certificate_signer.csr.as_ref().unwrap().to_der()?));
+
+        // 设置载荷...
+        let payload = {
+            acme_certificate_signer.account.directory().jws(finalize_url, acme_certificate_signer.account.private_key(), map.clone(), Some(acme_certificate_signer.account.account_url.clone()))?
+        };
+
+        debug!("[COAM][####################][+++][finalize_url: {}]", finalize_url);
+        debug!("[COAM][####################][+++][payload: {}]", payload);
+
+        // 添加 [application/jose+json] 请求头
+        let mut headers = HeaderMap::new();
+        //headers.set(ContentType::json());
+        headers.insert(reqwest::header::CONTENT_TYPE, "application/jose+json".parse().unwrap());
+
+        // 发起请求...
+        let client = Client::new();
+        //let jws = acme_certificate_signer.account.directory().jws(finalize_url, acme_certificate_signer.account.private_key(), map, Some(acme_certificate_signer.account.account_url.clone()))?
+        let mut res = client.post(finalize_url)
+            .headers(headers)
+            //.body(&jws[..])
+            //.body(jws)
+            .body(payload)
+            .send()?;
+
+        // 读取响应数据
+        //let body = res.text()?;
+        //info!("[####################][+++]res.body: \n{:?}", body);
+
+        // [How do you make a GET request in Rust?](https://stackoverflow.com/questions/43222429/how-do-you-make-a-get-request-in-rust)
+        // copy the response body directly to stdout
+        //std::io::copy(&mut res, &mut std::io::stdout())?;
+
+        let mut order_response: AcmeOrderResponse = res.json()?;
+        trace!("[####################][+++]res.order_response: \n{:?}", order_response);
+
+        // 判断是否经过验证...
+        if order_response.status != "valid" {
+            panic!("未验证通过!");
+        }
+
+        // [How do you make a GET request in Rust?](https://stackoverflow.com/questions/43222429/how-do-you-make-a-get-request-in-rust)
+        // copy the response body directly to stdout
+        //std::io::copy(&mut res, &mut std::io::stdout())?;
+
+        trace!("[####################][---][status: {:?}]", res.status());
+        trace!("[####################][---]Headers:\n{:?}", res.headers());
+        trace!("[####################][---]res: \n{:?}", res);
+
+        // 复制证书...
+        self.certificate = order_response.certificate;
+
+        Ok(self)
+    }
 }
 
 // 订单接口数据
@@ -1084,73 +1151,6 @@ impl<'a> AcmeCertificateSigner<'a> {
         self.csr = Some(csr);
 
         Ok(self)
-    }
-
-    /// finalize_order.
-    /// CSR and PKey will be generated if it doesn't set or loaded first.
-    pub fn finalize_order<'b, 'c>(&'b self, order: &'c mut AcmeOrderData) -> Result<&'c AcmeOrderData> {
-        // 获取请求的url
-        //let url = self.account.directory().url_for(resource).ok_or(format!("URL for resource: {} not found", resource))?;
-        //let url = &order.order_url;
-        let finalize_url = &order.finalize_url;
-
-        // request finalize order...
-        let mut map = HashMap::new();
-        //map.insert("resource".to_owned(), "new-cert".to_owned());
-        //map.insert("resource".to_owned(), resource.to_owned());
-        map.insert("csr".to_owned(), b64(&self.csr.as_ref().unwrap().to_der()?));
-
-        // 设置载荷...
-        let payload = {
-            self.account.directory().jws(finalize_url, self.account.private_key(), map.clone(), Some(self.account.account_url.clone()))?
-        };
-
-        debug!("[COAM][####################][+++][finalize_url: {}]", finalize_url);
-        debug!("[COAM][####################][+++][payload: {}]", payload);
-
-        // 添加 [application/jose+json] 请求头
-        let mut headers = HeaderMap::new();
-        //headers.set(ContentType::json());
-        headers.insert(reqwest::header::CONTENT_TYPE, "application/jose+json".parse().unwrap());
-
-        // 发起请求...
-        let client = Client::new();
-        //let jws = self.account.directory().jws(finalize_url, self.account.private_key(), map, Some(self.account.account_url.clone()))?
-        let mut res = client.post(finalize_url)
-            .headers(headers)
-            //.body(&jws[..])
-            //.body(jws)
-            .body(payload)
-            .send()?;
-
-        // 读取响应数据
-        //let body = res.text()?;
-        //info!("[####################][+++]res.body: \n{:?}", body);
-
-        // [How do you make a GET request in Rust?](https://stackoverflow.com/questions/43222429/how-do-you-make-a-get-request-in-rust)
-        // copy the response body directly to stdout
-        //std::io::copy(&mut res, &mut std::io::stdout())?;
-
-        let mut order_response: AcmeOrderResponse = res.json()?;
-        trace!("[####################][+++]res.order_response: \n{:?}", order_response);
-
-        // 判断是否经过验证...
-        if order_response.status != "valid" {
-            panic!("未验证通过!");
-        }
-
-        // [How do you make a GET request in Rust?](https://stackoverflow.com/questions/43222429/how-do-you-make-a-get-request-in-rust)
-        // copy the response body directly to stdout
-        //std::io::copy(&mut res, &mut std::io::stdout())?;
-
-        trace!("[####################][---][status: {:?}]", res.status());
-        trace!("[####################][---]Headers:\n{:?}", res.headers());
-        trace!("[####################][---]res: \n{:?}", res);
-
-        // 复制证书...
-        order.certificate = order_response.certificate;
-
-        Ok(order)
     }
 
     /// Signs certificate.
