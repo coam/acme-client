@@ -1035,6 +1035,60 @@ impl AcmeOrderData {
 
         Ok(self)
     }
+
+    /// Signs certificate.
+    ///
+    /// CSR and PKey will be generated if it doesn't set or loaded first.
+    pub fn sign_certificate(&self, acme_certificate_signer: AcmeCertificateSigner) -> Result<AcmeSignedCertificate> {
+        info!("[验证订单签发证书流程] -> Signing certificate");
+
+        // 判断是否经过验证...
+        if let Some(certificate_url) = self.certificate.clone() {
+            debug!("订单域名验证通过-可请求签发证书!");
+        } else {
+            panic!("未获取证书文件地址-无法签发证书!");
+        }
+
+        debug!("[请求签发订单域名证书] get certificate...");
+
+        let certificate_url = self.certificate.clone().unwrap();
+
+        // 发起请求...
+        let client = Client::new();
+        let mut res = client.get(certificate_url.as_str()).send()?;
+
+        trace!("[####################][---][status: {:?}]", res.status());
+        trace!("[####################][---]Headers:\n{:?}", res.headers());
+        trace!("[####################][---]res: \n{:?}", res);
+
+        // [How do you make a GET request in Rust?](https://stackoverflow.com/questions/43222429/how-do-you-make-a-get-request-in-rust)
+        // copy the response body directly to stdout
+        //std::io::copy(&mut res, &mut std::io::stdout())?;
+
+        //if res.status() != StatusCode::CREATED {
+        if res.status() != StatusCode::OK {
+            let res_json = {
+                let mut res_content = String::new();
+                res.read_to_string(&mut res_content)?;
+                from_str(&res_content)?
+            };
+            return Err(ErrorKind::AcmeServerError(res_json).into());
+        }
+
+        // 创建证书...
+        let mut crt_der = Vec::new();
+        res.read_to_end(&mut crt_der)?;
+
+        //let s = String::from_utf8_lossy(&crt_der);
+        //info!("[####################][---]result: \n{:?}", s);
+
+        //let cert = X509::from_der(&crt_der)?;
+        let cert = X509::from_pem(&crt_der)?;
+
+        info!("[域名证书签发成功]Certificate successfully signed........................................................................................");
+
+        Ok(AcmeSignedCertificate { cert: cert, csr: acme_certificate_signer.csr.unwrap(), private_key: acme_certificate_signer.private_key.unwrap() })
+    }
 }
 
 // 订单接口数据
@@ -1151,64 +1205,6 @@ impl<'a> AcmeCertificateSigner<'a> {
         self.csr = Some(csr);
 
         Ok(self)
-    }
-
-    /// Signs certificate.
-    ///
-    /// CSR and PKey will be generated if it doesn't set or loaded first.
-    pub fn sign_certificate(self, order: &AcmeOrderData) -> Result<AcmeSignedCertificate> {
-        info!("[验证订单签发证书流程] -> Signing certificate");
-
-        // 判断是否经过验证...
-        if let Some(certificate_url) = order.certificate.clone() {
-            debug!("订单域名验证通过-可请求签发证书!");
-        } else {
-            panic!("未获取证书文件地址-无法签发证书!");
-        }
-
-        debug!("[请求签发订单域名证书] get certificate...");
-
-        let certificate_url = order.certificate.clone().unwrap();
-
-        // 发起请求...
-        let client = Client::new();
-        let mut res = client.get(certificate_url.as_str()).send()?;
-
-        trace!("[####################][---][status: {:?}]", res.status());
-        trace!("[####################][---]Headers:\n{:?}", res.headers());
-        trace!("[####################][---]res: \n{:?}", res);
-
-        // [How do you make a GET request in Rust?](https://stackoverflow.com/questions/43222429/how-do-you-make-a-get-request-in-rust)
-        // copy the response body directly to stdout
-        //std::io::copy(&mut res, &mut std::io::stdout())?;
-
-        //if res.status() != StatusCode::CREATED {
-        if res.status() != StatusCode::OK {
-            let res_json = {
-                let mut res_content = String::new();
-                res.read_to_string(&mut res_content)?;
-                from_str(&res_content)?
-            };
-            return Err(ErrorKind::AcmeServerError(res_json).into());
-        }
-
-        // 创建证书...
-        let mut crt_der = Vec::new();
-        res.read_to_end(&mut crt_der)?;
-
-        //let s = String::from_utf8_lossy(&crt_der);
-        //info!("[####################][---]result: \n{:?}", s);
-
-        //let cert = X509::from_der(&crt_der)?;
-        let cert = X509::from_pem(&crt_der)?;
-
-        info!("[域名证书签发成功]Certificate successfully signed........................................................................................");
-
-        Ok(AcmeSignedCertificate {
-            cert: cert,
-            csr: self.csr.unwrap(),
-            private_key: self.private_key.unwrap(),
-        })
     }
 }
 
