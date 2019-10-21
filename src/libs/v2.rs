@@ -545,7 +545,7 @@ pub struct AcmeOrderAuthorizationChallenge {
     pub validation_record: Option<Vec<AcmeOrderAuthorizationChallengeValidationRecord>>,
     // 授权签名...
     pub auth_key_token: Option<String>,
-    pub auth_challenge_token: Option<String>,
+    pub auth_dns_token: Option<String>,
 }
 
 // AcmeOrderAuthChallenge 挑战...
@@ -758,7 +758,7 @@ pub struct AcmeOrderData {
 impl AcmeOrderData {
     /// Creates a new identifier authorization object for domain
     pub fn request_acme_order_auth_list(&mut self) -> Result<&AcmeOrderData> {
-        info!("[循环验证 ACME 订单授权] ->[authorizations: {:?}]", self.authorizations);
+        info!("[循环获取 ACME 订单授权验证] ->[authorizations: {:?}]", self.authorizations);
 
         // 循环授权验证...
         for authorization in &self.authorizations {
@@ -807,7 +807,7 @@ impl AcmeOrderData {
 
     /// Creates a new identifier authorization object for domain
     pub fn get_acme_order_auth_list(&self, acme_account: &AcmeAccountData) -> Result<Vec<AcmeOrderAuthData>> {
-        info!("[循环验证 ACME 订单授权] ->[auth_list: {:?}]", self.auth_list);
+        info!("[循环计算 ACME 订单授权签名] ->[auth_list: {:?}]", self.auth_list);
 
         // 授权列表...
         let mut acme_order_auth_list = Vec::<AcmeOrderAuthData>::new();
@@ -842,12 +842,12 @@ impl AcmeOrderData {
 
             // 获取挑战签名...
             let acme_account_order_auth_challenge = AcmeOrderAuthChallenge { types, url, token, auth_key_token: auth_key_token.clone() };
-            let auth_challenge_token = acme_account_order_auth_challenge.signature().unwrap();
-            info!("[域名挑战验证签名 `dns-01` TXT解析值] authorization challenge info: [auth_challenge_token: {:?}][auth_key_thumbprint: {:?}][auth_key_token: {:?}]", auth_challenge_token, auth_key_thumbprint, auth_key_token);
+            let auth_dns_token = acme_account_order_auth_challenge.signature().unwrap();
+            info!("[域名挑战验证签名 `dns-01` TXT解析值][auth_dns_token: {:?}][auth_key_thumbprint: {:?}][auth_key_token: {:?}]", auth_dns_token, auth_key_thumbprint, auth_key_token);
 
             // 保存授权...
             acme_order_auth_challenge.auth_key_token = Some(auth_key_token);
-            acme_order_auth_challenge.auth_challenge_token = Some(auth_challenge_token);
+            acme_order_auth_challenge.auth_dns_token = Some(auth_dns_token);
 
             // 授权挑战数据...
             let account_auth_data = AcmeOrderAuthData { acme_order_auth_identifier, acme_order_auth_challenge };
@@ -855,6 +855,10 @@ impl AcmeOrderData {
             // 推入授权列表...
             acme_order_auth_list.push(account_auth_data);
         }
+
+        println!("\n");
+
+        debug!("[ACME 订单授权签名列表] ->[acme_order_auth_list: {:?}]", acme_order_auth_list);
         println!("\n");
 
         Ok(acme_order_auth_list)
@@ -862,6 +866,8 @@ impl AcmeOrderData {
 
     /// Creates a new identifier authorization object for domain
     pub fn verify_acme_order_auth_list(&self, acme_name: String, acme_account: &AcmeAccountData, acme_order_auth_list: &Vec<AcmeOrderAuthData>) -> Result<String> {
+        info!("[循环验证 ACME 订单授权签名] ->[acme_order_auth_list: {:?}]", acme_order_auth_list);
+
         // 依次发起挑战...
         for auth_acme_order_data in acme_order_auth_list.iter() {
             info!("[###]循环处理挑战订单: auth_acme_order_data: {:?}", auth_acme_order_data);
@@ -882,12 +888,12 @@ impl AcmeOrderData {
             let token = acme_order_auth_challenge.token.clone();
             let types = acme_order_auth_challenge.types.clone();
             let url = acme_order_auth_challenge.url.clone();
-            let acme_order_auth_challenge_token = acme_order_auth_challenge.auth_challenge_token.clone().unwrap();
+            let auth_dns_token = acme_order_auth_challenge.auth_dns_token.clone().unwrap();
             let auth_key_token = acme_order_auth_challenge.auth_key_token.clone().unwrap();
 
             // 获取挑战签名...
             //let signature = acme_order_auth_challenge.signature().unwrap();
-            let signature = acme_order_auth_challenge_token;
+            let signature = auth_dns_token;
 
             // 延时计数...
             let mut try_ts = 0;
