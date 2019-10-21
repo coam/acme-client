@@ -380,9 +380,9 @@ impl AcmeAuthDirectory {
         info!("[签发域名证书环境][ACME][from_url()][LETS_ENCRYPT_DIRECTORY_URL][url: {:?}]", url);
 
         let client = Client::new();
-        let mut res = client.get(url).send()?;
+        let mut response = client.get(url).send()?;
         let mut content = String::new();
-        res.read_to_string(&mut content)?;
+        response.read_to_string(&mut content)?;
         Ok(AcmeAuthDirectory {
             acme_api: url.to_owned(),
             auth_directory: from_str(&content)?,
@@ -427,10 +427,10 @@ impl AcmeAuthDirectory {
     pub fn get_nonce(&self) -> Result<String> {
         let acme_resource_api = self.get_acme_resource_url("newNonce").unwrap_or(&self.acme_api);
         let client = Client::new();
-        let res = client.get(acme_resource_api).send()?;
+        let response = client.get(acme_resource_api).send()?;
 
         // 请求临时接口凭证
-        res.headers().get("Replay-Nonce").ok_or("Replay-Nonce header not found".into())
+        response.headers().get("Replay-Nonce").ok_or("Replay-Nonce header not found".into())
             .and_then(|nonce| nonce.to_str().map_err(|_| "Nonce header value contains invalid characters".into()))
             .map(|nonce| nonce.to_string())
     }
@@ -459,27 +459,27 @@ impl AcmeAuthDirectory {
 
         // 请求客户端...
         let client = Client::new();
-        let mut res = client.post(acme_resource_api)
+        let mut response = client.post(acme_resource_api)
             .headers(headers)
             //.body(&api_payload_jws[..])
             .body(api_payload_jws)
             .send()?;
 
         // ACME 接口请求响应数据
-        let res_json = {
-            let mut res_content = String::new();
-            res.read_to_string(&mut res_content)?;
-            if !res_content.is_empty() {
-                from_str(&res_content)?
+        let response_json = {
+            let mut response_content = String::new();
+            response.read_to_string(&mut response_content)?;
+            if !response_content.is_empty() {
+                from_str(&response_content)?
             } else {
                 to_value(true)?
             }
         };
 
         // 响应头...
-        let resp_headers = res.headers();
+        let resp_headers = response.headers();
 
-        Ok((res.status(), res_json, resp_headers.clone()))
+        Ok((response.status(), response_json, resp_headers.clone()))
     }
 
     /// Makes a Flattened JSON Web Signature from payload
@@ -665,8 +665,8 @@ impl AcmeAccountData {
     }
 
     // 创建订单构造器...
-    pub fn order_creator(&self) -> OrderCreator {
-        OrderCreator {
+    pub fn acme_order_creator(&self) -> AcmeOrderCreator {
+        AcmeOrderCreator {
             order_identifiers: None,
         }
     }
@@ -752,7 +752,7 @@ impl AcmeAccountRegistration {
 
 /// Helper to create an order.
 //#[derive(Serialize, Deserialize, Debug)]
-pub struct OrderCreator {
+pub struct AcmeOrderCreator {
     order_identifiers: Option<Vec<AcmeOrderDataIdentifier>>,
 }
 
@@ -979,6 +979,7 @@ impl AcmeOrderData {
         let challenge_token = challenge.signature().unwrap();
         debug!("validate info: [challenge_token: {:?}]", challenge_token);
 
+        // 验证参数...
         let payload = {
             let map = {
                 let mut map: HashMap<String, Value> = HashMap::new();
@@ -988,8 +989,7 @@ impl AcmeOrderData {
             acme_account.directory().jws(&challenge.url, acme_account.private_key(), map, Some(acme_account.account_url.clone()))?
         };
 
-        debug!("[COAM][####################][+++][&challenge.url: {}]", &challenge.url);
-        debug!("[COAM][####################][+++][payload: {}]", payload);
+        debug!("[+++][&challenge.url: {}][payload: {}]", &challenge.url, payload);
 
         // 添加 [application/jose+json] 请求头
         let mut headers = HeaderMap::new();
@@ -998,58 +998,56 @@ impl AcmeOrderData {
 
         // 发起请求...
         let client = Client::new();
-        //let mut resp = client.post(&challenge.url).body(&payload[..]).send()?;
-        let mut resp = client.post(&challenge.url)
+        //let mut response = client.post(&challenge.url).body(&payload[..]).send()?;
+        let mut response = client.post(&challenge.url)
             .headers(headers)
             .body(payload)
             .send()?;
 
         // 获取挑战验证请求响应数据...
-        let mut res_json: Value = {
-            let mut res_content = String::new();
-            resp.read_to_string(&mut res_content)?;
-            from_str(&res_content)?
+        let mut response_json: Value = {
+            let mut response_content = String::new();
+            response.read_to_string(&mut response_content)?;
+            from_str(&response_content)?
         };
 
-        debug!("[COAM][####################][+++][res_json: {}]", res_json);
-        debug!("[COAM][####################][+++][status: {}]", resp.status());
+        debug!("[+++][status: {}][response_json: {}]", response.status(), response_json);
 
-        if resp.status() != StatusCode::OK {
-            error!("[###][####################][---][res_json: {}]", res_json);
-            error!("[###][####################][---][status: {}]", resp.status());
-            return Err(ErrorKind::AcmeServerError(res_json).into());
+        // 判断响应状态码...
+        if response.status() != StatusCode::OK {
+            error!("[---][status: {}][response_json: {}]", response.status(), response_json);
+            return Err(ErrorKind::AcmeServerError(response_json).into());
         }
 
         loop {
             // 验证挑战状态
-            let status = res_json.as_object()
+            let status = response_json.as_object()
                 .and_then(|o| o.get("status"))
                 .and_then(|s| s.as_str())
                 .ok_or("Status not found")?
                 .to_owned();
 
-            debug!("[COAM][####################][LOOP][res_json: {}]", res_json);
-            debug!("[COAM][####################][LOOP][status: {}]", status);
+            debug!("[LOOP][status: {}][response_json: {}]", status, response_json);
 
             // 判断验证状态...
             if status == "pending" {
                 info!("[循环挑战验证状态] -> [challenge validate status: pending], trying again...");
 
                 // 请求结果
-                let mut resp = client.get(&challenge.url).send()?;
-                res_json = {
-                    let mut res_content = String::new();
-                    resp.read_to_string(&mut res_content)?;
-                    from_str(&res_content)?
+                let mut response = client.get(&challenge.url).send()?;
+                response_json = {
+                    let mut response_content = String::new();
+                    response.read_to_string(&mut response_content)?;
+                    from_str(&response_content)?
                 };
 
-                warn!("[challenge validate status: pending][res_json: {}]", res_json);
+                warn!("[challenge validate status: pending][response_json: {}]", response_json);
             } else if status == "valid" {
                 info!("[循环挑战验证状态] -> [challenge validate status: valid], trying next...");
                 return Ok(());
             } else if status == "invalid" {
                 error!("[循环挑战验证状态] -> [challenge validate status: invalid], trying ended...");
-                return Err(ErrorKind::AcmeServerError(res_json).into());
+                return Err(ErrorKind::AcmeServerError(response_json).into());
             }
 
             // 循环等待验证...
@@ -1072,8 +1070,7 @@ impl AcmeOrderData {
             acme_certificate_signer.account.directory().jws(finalize_url, acme_certificate_signer.account.private_key(), map.clone(), Some(acme_certificate_signer.account.account_url.clone()))?
         };
 
-        debug!("[COAM][####################][+++][finalize_url: {}]", finalize_url);
-        debug!("[COAM][####################][+++][payload: {}]", payload);
+        debug!("[+++][finalize_url: {}][payload: {}]", finalize_url,payload);
 
         // 添加 [application/jose+json] 请求头
         let mut headers = HeaderMap::new();
@@ -1083,7 +1080,7 @@ impl AcmeOrderData {
         // 发起请求...
         let client = Client::new();
         //let jws = acme_certificate_signer.account.directory().jws(finalize_url, acme_certificate_signer.account.private_key(), map, Some(acme_certificate_signer.account.account_url.clone()))?
-        let mut res = client.post(finalize_url)
+        let mut response = client.post(finalize_url)
             .headers(headers)
             //.body(&jws[..])
             //.body(jws)
@@ -1091,15 +1088,15 @@ impl AcmeOrderData {
             .send()?;
 
         // 读取响应数据
-        //let body = res.text()?;
-        //info!("[####################][+++]res.body: \n{:?}", body);
+        //let body = response.text()?;
+        //info!("[####################][+++]response.body: \n{:?}", body);
 
         // [How do you make a GET request in Rust?](https://stackoverflow.com/questions/43222429/how-do-you-make-a-get-request-in-rust)
         // copy the response body directly to stdout
         //std::io::copy(&mut res, &mut std::io::stdout())?;
 
-        let mut order_response: AcmeOrderResponse = res.json()?;
-        trace!("[####################][+++]res.order_response: \n{:?}", order_response);
+        let mut order_response: AcmeOrderResponse = response.json()?;
+        trace!("[#]response.order_response: \n{:?}", order_response);
 
         // 判断是否经过验证...
         if order_response.status != "valid" {
@@ -1110,9 +1107,8 @@ impl AcmeOrderData {
         // copy the response body directly to stdout
         //std::io::copy(&mut res, &mut std::io::stdout())?;
 
-        trace!("[####################][---][status: {:?}]", res.status());
-        trace!("[####################][---]Headers:\n{:?}", res.headers());
-        trace!("[####################][---]res: \n{:?}", res);
+        //trace!("[#][response.status(): {:?}] response.headers():\n{:?}", response.status(), response.headers());
+        trace!("[#]response: \n{:?}", response);
 
         // 复制证书...
         self.certificate = order_response.certificate;
@@ -1139,29 +1135,30 @@ impl AcmeOrderData {
 
         // 发起请求...
         let client = Client::new();
-        let mut res = client.get(certificate_url.as_str()).send()?;
+        let mut response = client.get(certificate_url.as_str()).send()?;
 
-        trace!("[####################][---][status: {:?}]", res.status());
-        trace!("[####################][---]Headers:\n{:?}", res.headers());
-        trace!("[####################][---]res: \n{:?}", res);
+        trace!("[####################][---][status: {:?}]", response.status());
+        trace!("[####################][---]Headers:\n{:?}", response.headers());
+        trace!("[####################][---]response: \n{:?}", response);
 
         // [How do you make a GET request in Rust?](https://stackoverflow.com/questions/43222429/how-do-you-make-a-get-request-in-rust)
         // copy the response body directly to stdout
-        //std::io::copy(&mut res, &mut std::io::stdout())?;
+        //std::io::copy(&mut response, &mut std::io::stdout())?;
 
-        //if res.status() != StatusCode::CREATED {
-        if res.status() != StatusCode::OK {
-            let res_json = {
-                let mut res_content = String::new();
-                res.read_to_string(&mut res_content)?;
-                from_str(&res_content)?
+        //if response.status() != StatusCode::CREATED {
+        if response.status() != StatusCode::OK {
+            // 获取响应的数据
+            let response_json = {
+                let mut response_content = String::new();
+                response.read_to_string(&mut response_content)?;
+                from_str(&response_content)?
             };
-            return Err(ErrorKind::AcmeServerError(res_json).into());
+            return Err(ErrorKind::AcmeServerError(response_json).into());
         }
 
         // 创建证书...
         let mut crt_der = Vec::new();
-        res.read_to_end(&mut crt_der)?;
+        response.read_to_end(&mut crt_der)?;
 
         //let s = String::from_utf8_lossy(&crt_der);
         //info!("[####################][---]result: \n{:?}", s);
@@ -1194,9 +1191,9 @@ pub struct AcmeOrderDataIdentifier {
     pub value: String,
 }
 
-impl OrderCreator {
+impl AcmeOrderCreator {
     /// Sets contact email address
-    pub fn identifiers(mut self, order_identifiers: Vec<AcmeOrderDataIdentifier>) -> OrderCreator {
+    pub fn identifiers(mut self, order_identifiers: Vec<AcmeOrderDataIdentifier>) -> AcmeOrderCreator {
         self.order_identifiers = Some(order_identifiers);
         self
     }
@@ -1377,11 +1374,11 @@ impl AcmeSignedCertificate {
     /// will be used if url is None.
     fn get_intermediate_certificate(&self, url: Option<&str>) -> Result<X509> {
         let client = Client::new();
-        let mut res = client
+        let mut response = client
             .get(url.unwrap_or(LETS_ENCRYPT_INTERMEDIATE_CERT_URL))
             .send()?;
         let mut content = Vec::new();
-        res.read_to_end(&mut content)?;
+        response.read_to_end(&mut content)?;
         Ok(X509::from_pem(&content)?)
     }
 
