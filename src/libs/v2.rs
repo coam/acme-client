@@ -414,7 +414,7 @@ impl AcmeAuthDirectory {
         // 获取 jws
         let api_payload_jws = self.jws(acme_resource_api, private_key, payload_value, kid)?;
 
-        trace!("[发起请求->request()][acme_resource_api: {:?}][api_payload_jws: {:?}]", acme_resource_api, api_payload_jws);
+        //trace!("[发起请求->request()][acme_resource_api: {:?}][api_payload_jws: {:?}]", acme_resource_api, api_payload_jws);
 
         // 添加 [application/jose+json] 请求头
         let mut headers = HeaderMap::new();
@@ -447,16 +447,18 @@ impl AcmeAuthDirectory {
     }
 
     /// Makes a Flattened JSON Web Signature from payload
-    pub fn jws<T: Serialize>(&self, url: &str, private_key: &PKey<openssl::pkey::Private>, payload: T, kid: Option<String>) -> Result<String> {
+    pub fn jws<T: Serialize>(&self, request_acme_resource_api: &str, private_key: &PKey<openssl::pkey::Private>, payload: T, kid: Option<String>) -> Result<String> {
         // 获取临时授权凭证
         let nonce = self.get_nonce()?;
+
+        trace!("[获取请求凭证->get_nonce()][nonce: {:?}]", nonce);
 
         // 组装接口请求参数验证签名...
         let mut payload_jws: HashMap<String, Value> = HashMap::new();
 
         // header: 'alg': 'RS256', 'jwk': { e, n, kty }
         let mut header: HashMap<String, Value> = HashMap::new();
-        header.insert("url".to_owned(), to_value(url)?);
+        header.insert("url".to_owned(), to_value(request_acme_resource_api)?);
         header.insert("alg".to_owned(), to_value("RS256")?);
         header.insert("nonce".to_owned(), to_value(nonce)?);
 
@@ -469,6 +471,7 @@ impl AcmeAuthDirectory {
 
         // protected: base64 of header + nonce
         let mut payload_value = to_value(&payload)?;
+        trace!("[发起请求->request()->jws()][request_acme_resource_api: {:?}]", request_acme_resource_api);
         trace!("[发起请求->request()->jws()][payload_value: {:?}]", payload_value);
         trace!("[发起请求->request()->jws()][protected=>header: {:?}]", header);
 
@@ -698,7 +701,7 @@ impl AcmeAccountRegistration {
         let mut map = HashMap::new();
         //map.insert("agreement".to_owned(), to_value(self.agreement.unwrap_or(LETS_ENCRYPT_AGREEMENT_URL.to_owned()))?);
         map.insert("termsOfServiceAgreed".to_owned(), to_value(true)?);
-        if let Some(mut contact) = self.contact {
+        if let Some(contact) = self.contact {
             //if let Some(email) = self.email {
             //    contact.push(format!("mailto:{}", email));
             //}
@@ -712,19 +715,19 @@ impl AcmeAccountRegistration {
 
         let private_key = self.private_key.unwrap_or(gen_key()?);
 
-        let (status, resp, resp_headers) = self.auth_directory.request(&private_key, "newAccount", map, None)?;
+        let (status, response, response_headers) = self.auth_directory.request(&private_key, "newAccount", map, None)?;
 
-        debug!("[请求账户注册结果][status: {:?}][resp: {:?}][resp_headers: {:?}]", status, resp, resp_headers);
+        debug!("[请求账户注册结果][status: {:?}][response: {:?}][response_headers: {:?}]", status, response, response_headers);
 
         match status {
             StatusCode::OK => info!("[账户注册成功] -> StatusCode::OK - User successfully registered!"),
             StatusCode::CREATED => info!("[账户注册成功] -> StatusCode::CREATED - User successfully registered!"),
             StatusCode::CONFLICT => info!("[账户注册成功] -> StatusCode::CONFLICT - User already registered!"),
-            _ => return Err(ErrorKind::AcmeServerError(resp).into()),
+            _ => return Err(ErrorKind::AcmeServerError(response).into()),
         };
 
         // 账户地址...
-        let account_url = resp_headers.get("location").unwrap();
+        let account_url = response_headers.get("location").unwrap();
 
         Ok(AcmeAccountData {
             auth_directory: self.auth_directory,
@@ -961,7 +964,7 @@ impl AcmeOrderData {
             acme_account.directory().jws(&challenge.url, acme_account.private_key(), map, Some(acme_account.account_url.clone()))?
         };
 
-        debug!("[+++][&challenge.url: {}][payload: {}]", &challenge.url, payload);
+        //debug!("[+++][&challenge.url: {}][payload: {}]", &challenge.url, payload);
 
         // 添加 [application/jose+json] 请求头
         let mut headers = HeaderMap::new();
@@ -1042,7 +1045,7 @@ impl AcmeOrderData {
             acme_account.directory().jws(finalize_url, acme_account.private_key(), map.clone(), Some(acme_account.account_url.clone()))?
         };
 
-        debug!("[+++][finalize_url: {}][payload: {}]", finalize_url, payload);
+        //debug!("[+++][finalize_url: {}][payload: {}]", finalize_url, payload);
 
         // 添加 [application/jose+json] 请求头
         let mut headers = HeaderMap::new();
