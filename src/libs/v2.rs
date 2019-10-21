@@ -404,9 +404,9 @@ impl AcmeAuthDirectory {
     /// Makes a new post request to directory, signs payload with private_key.
     ///
     /// Returns status code and Value object from reply.
-    fn request<T: Serialize>(&self, private_key: &PKey<openssl::pkey::Private>, resource: &str, payload: T, kid: Option<String>) -> Result<(StatusCode, Value, HeaderMap)> {
+    fn request<T: Serialize>(&self, private_key: &PKey<openssl::pkey::Private>, resource: &str, payload: T, kid: Option<String>) -> Result<(StatusCode, HeaderMap, Value)> {
         // 格式转换
-        let mut payload_value = to_value(&payload)?;
+        let payload_value = to_value(&payload)?;
 
         trace!("[ACME接口请求参数->request()][resource: {:?}][kid: {:?}][payload_value: {:?}]", resource, kid, payload_value);
 
@@ -416,7 +416,7 @@ impl AcmeAuthDirectory {
         // 获取 jws
         let api_payload_jws = self.jws(acme_resource_api, private_key, payload_value, kid)?;
 
-        //trace!("[发起请求->request()][acme_resource_api: {:?}][api_payload_jws: {:?}]", acme_resource_api, api_payload_jws);
+        trace!("[发起请求->request()][acme_resource_api: {:?}][api_payload_jws: {:?}]", acme_resource_api, &api_payload_jws);
 
         // 添加 [application/jose+json] 请求头
         let mut headers = HeaderMap::new();
@@ -428,11 +428,11 @@ impl AcmeAuthDirectory {
         let mut response = client.post(acme_resource_api)
             .headers(headers)
             //.body(&api_payload_jws[..])
-            .body(api_payload_jws)
+            .body(to_string(&api_payload_jws)?)
             .send()?;
 
         // ACME 接口请求响应数据
-        let response_value = {
+        let response_data = {
             let mut response_content = String::new();
             response.read_to_string(&mut response_content)?;
             if !response_content.is_empty() {
@@ -445,59 +445,59 @@ impl AcmeAuthDirectory {
         // 响应头...
         let response_headers = response.headers();
 
-        Ok((response.status(), response_value, response_headers.clone()))
+        trace!("[请求结果][response.status(): {:?}][response_headers: {:?}][response_data: {:?}]", response.status(), response_headers, response_data);
+
+        Ok((response.status(), response_headers.clone(), response_data))
     }
 
     /// Makes a Flattened JSON Web Signature from payload
-    pub fn jws<T: Serialize>(&self, request_acme_resource_api: &str, private_key: &PKey<openssl::pkey::Private>, payload: T, kid: Option<String>) -> Result<String> {
+    pub fn jws<T: Serialize>(&self, request_acme_resource_api: &str, private_key: &PKey<openssl::pkey::Private>, payload: T, kid: Option<String>) -> Result<HashMap<String, Value>> {
         // 获取临时授权凭证
         let nonce = self.get_nonce()?;
 
         trace!("[获取请求凭证->get_nonce()][nonce: {:?}]", nonce);
 
         // 组装接口请求参数验证签名...
-        let mut payload_jws: HashMap<String, Value> = HashMap::new();
+        let mut request_jws: HashMap<String, Value> = HashMap::new();
 
-        // header: 'alg': 'RS256', 'jwk': { e, n, kty }
-        let mut header: HashMap<String, Value> = HashMap::new();
-        header.insert("url".to_owned(), to_value(request_acme_resource_api)?);
-        header.insert("alg".to_owned(), to_value("RS256")?);
-        header.insert("nonce".to_owned(), to_value(nonce)?);
+        // protected: 'alg': 'RS256', 'jwk': { e, n, kty }
+        let mut protected: HashMap<String, Value> = HashMap::new();
+        protected.insert("url".to_owned(), to_value(request_acme_resource_api)?);
+        protected.insert("alg".to_owned(), to_value("RS256")?);
+        protected.insert("nonce".to_owned(), to_value(nonce)?);
 
         // 设置验证方式...
         if let Some(k_id) = kid {
-            header.insert("kid".to_owned(), to_value(k_id)?);
+            protected.insert("kid".to_owned(), to_value(k_id)?);
         } else {
-            header.insert("jwk".to_owned(), self.jwk(private_key)?);
+            protected.insert("jwk".to_owned(), self.jwk(private_key)?);
         }
 
-        // protected: base64 of header + nonce
-        let mut payload_value = to_value(&payload)?;
-        trace!("[发起请求->request()->jws()][request_acme_resource_api: {:?}]", request_acme_resource_api);
-        trace!("[发起请求->request()->jws()][payload_value: {:?}]", payload_value);
-        trace!("[发起请求->request()->jws()][protected=>header: {:?}]", header);
+        // 接口请求参数...
+        trace!("[接口签名参数->request()->jws()][request_acme_resource_api: {:?}]", request_acme_resource_api);
+        trace!("[接口签名参数->request()->jws()][payload: {:?}]", to_value(&payload)?);
+        trace!("[接口签名参数->request()->jws()][protected: {:?}]", protected);
 
-        // protected: base64 of header + nonce
-        let header_64 = b64(&to_string(&header)?.into_bytes());
-        payload_jws.insert("protected".to_owned(), to_value(&header_64)?);
+        // protected: base64 of protected + nonce
+        let protected_64 = b64(&to_string(&protected)?.into_bytes());
+        request_jws.insert("protected".to_owned(), to_value(&protected_64)?);
 
         // payload: b64 of payload
         let payload = to_string(&payload)?;
         let payload_64 = b64(&payload.into_bytes());
-        payload_jws.insert("payload".to_owned(), to_value(&payload_64)?);
+        request_jws.insert("payload".to_owned(), to_value(&payload_64)?);
 
         // signature: b64 of hash of signature of {proctected64}.{payload64}
-        payload_jws.insert("signature".to_owned(), {
+        request_jws.insert("signature".to_owned(), {
             let mut signer = Signer::new(MessageDigest::sha256(), &private_key)?;
-            signer.update(&format!("{}.{}", header_64, payload_64).into_bytes())?;
+            signer.update(&format!("{}.{}", protected_64, payload_64).into_bytes())?;
             let signature_64 = b64(&signer.sign_to_vec()?);
             to_value(signature_64)?
         });
 
-        trace!("[发起请求->request()->jws()][payload_jws: {:?}]", payload_jws);
+        trace!("[接口签名结果->request()->jws()][request_jws: {:?}]", request_jws);
 
-        let json_str = to_string(&payload_jws)?;
-        Ok(json_str)
+        Ok(request_jws)
     }
 
     /// Returns jwk field of jws header
@@ -516,6 +516,7 @@ impl AcmeAuthDirectory {
 pub struct AcmeOrderAuthResponse {
     status: String,
     expires: String,
+    // 授权挑战域名标志
     pub identifier: AcmeOrderIdentifier,
     // 授权挑战方案列表
     pub challenges: Vec<AcmeOrderAuthorizationChallenge>,
@@ -607,7 +608,7 @@ impl AcmeAccountData {
 
     /// Revokes a signed certificate
     pub fn revoke_certificate(&self, cert: &X509) -> Result<()> {
-        let (status, resp, response_headers) = {
+        let (status, response_headers, response_data) = {
             let mut map = HashMap::new();
             map.insert("certificate".to_owned(), b64(&cert.to_der()?));
 
@@ -617,7 +618,7 @@ impl AcmeAccountData {
         match status {
             StatusCode::OK => info!("Certificate successfully revoked"),
             StatusCode::CONFLICT => warn!("Certificate already revoked"),
-            _ => return Err(ErrorKind::AcmeServerError(resp).into()),
+            _ => return Err(ErrorKind::AcmeServerError(response_data).into()),
         }
 
         Ok(())
@@ -717,15 +718,15 @@ impl AcmeAccountRegistration {
 
         let private_key = self.private_key.unwrap_or(gen_key()?);
 
-        let (status, response, response_headers) = self.auth_directory.request(&private_key, "newAccount", map, None)?;
+        let (status, response_headers, response_data) = self.auth_directory.request(&private_key, "newAccount", map, None)?;
 
-        debug!("[请求账户注册结果][status: {:?}][response: {:?}][response_headers: {:?}]", status, response, response_headers);
+        debug!("[请求账户注册结果][status: {:?}][response_headers: {:?}][response_data: {:?}]", status, response_headers, response_data);
 
         match status {
             StatusCode::OK => info!("[账户注册成功] -> StatusCode::OK - User successfully registered!"),
             StatusCode::CREATED => info!("[账户注册成功] -> StatusCode::CREATED - User successfully registered!"),
             StatusCode::CONFLICT => info!("[账户注册成功] -> StatusCode::CONFLICT - User already registered!"),
-            _ => return Err(ErrorKind::AcmeServerError(response).into()),
+            _ => return Err(ErrorKind::AcmeServerError(response_data).into()),
         };
 
         // 账户地址...
@@ -757,12 +758,12 @@ pub struct AcmeOrderData {
 impl AcmeOrderData {
     /// Creates a new identifier authorization object for domain
     pub fn request_acme_order_auth_list(&mut self) -> Result<&AcmeOrderData> {
-        info!("[循环验证 ACME 订单] -> Sending authorization request for order: {:?}", self);
+        info!("[循环验证 ACME 订单授权] ->[authorizations: {:?}]", self.authorizations);
 
         // 循环授权验证...
         for authorization in &self.authorizations {
             println!("\n");
-            info!("[开始发起 ACME 订单验证挑战] -> For send authorization request for [authorization: {:?}]", authorization);
+            info!("[获取 ACME 订单验证挑战方案] -> [authorization: {:?}]", authorization);
 
             // 发起授权验证...
             let client = Client::new();
@@ -778,54 +779,56 @@ impl AcmeOrderData {
 
             // 获取授权数据...
             let acme_order_auth_response: AcmeOrderAuthResponse = response.json()?;
-            info!("[账户订单验证挑战]response.acme_order_auth_response: \n{:?}", acme_order_auth_response);
+            info!("[账户订单域名授权验证挑战方案]response.acme_order_auth_response: \n{:?}", acme_order_auth_response);
 
-            // 依次读取授权数据
+            // 依次读取授权挑战数据
             let acme_order_auth_identifier = acme_order_auth_response.identifier.clone();
             let acme_order_auth_challenges = acme_order_auth_response.challenges.clone();
-            debug!("[####]循环验证TXT解析数据: acme_order_auth_identifier: {:?}", acme_order_auth_identifier);
-            debug!("[####]循环验证TXT解析数据: acme_order_auth_challenges: {:?}", acme_order_auth_challenges);
+            //debug!("[####] acme_order_auth_identifier: {:?}", acme_order_auth_identifier);
+            //debug!("[####] acme_order_auth_challenges: {:?}", acme_order_auth_challenges);
 
             // 过滤查询 dns-01 挑战...
-            let acme_order_auth_challenge = acme_order_auth_challenges.iter().find(|challenge| challenge.types == "dns-01").unwrap();
+            let acme_order_auth_challenge = acme_order_auth_challenges.iter().find(|challenge| challenge.types == "dns-01");
+
+            // 必须包含 `dns-01` 验证请求
+            if let None = acme_order_auth_challenge {
+                panic!("[未匹配挑战验证: dns-01,授权验证中断!] -- Find none [dns-01] in challenges");
+            }
 
             // 推入授权列表...
             self.auth_list.push(acme_order_auth_response);
         }
+        println!("\n");
+
+        debug!("[ACME 订单授权验证列表] ->[acme_order.auth_list: {:?}]", self.auth_list);
 
         Ok(self)
     }
 
     /// Creates a new identifier authorization object for domain
     pub fn get_acme_order_auth_list(&self, acme_account: &AcmeAccountData) -> Result<Vec<AcmeOrderAuthData>> {
-        info!("[循环验证 ACME 订单] -> Sending authorization request for order: {:?}", self);
+        info!("[循环验证 ACME 订单授权] ->[auth_list: {:?}]", self.auth_list);
 
         // 授权列表...
         let mut acme_order_auth_list = Vec::<AcmeOrderAuthData>::new();
 
         // 循环授权挑战验证列表...
-        for acme_order_auth_response in &self.auth_list {
+        for auth_info in &self.auth_list {
             println!("\n");
-            info!("[开始发起 ACME 订单验证挑战] -> For send authorization request for [acme_order_auth_response: {:?}]", acme_order_auth_response);
+            info!("[为 ACME 订单验证挑战签名] -> [auth_info: {:?}]", auth_info);
 
             // 依次读取授权数据
-            let acme_order_auth_identifier = acme_order_auth_response.identifier.clone();
-            let acme_order_auth_challenges = acme_order_auth_response.challenges.clone();
-            debug!("[####]循环验证TXT解析数据: acme_order_auth_identifier: {:?}", acme_order_auth_identifier);
-            debug!("[####]循环验证TXT解析数据: acme_order_auth_challenges: {:?}", acme_order_auth_challenges);
-
-            // 过滤查询 dns-01 挑战...
-            let dns_challenge = acme_order_auth_challenges.iter().find(|challenge| challenge.types == "dns-01");
-            if let Some(challenge) = dns_challenge {
-                info!("[已匹配挑战: dns-01] in challenges: {:?}", challenge);
-            } else {
-                panic!("[未匹配挑战: dns-01] -- Find none [dns-01] in challenges");
-            }
+            let acme_order_auth_identifier = auth_info.identifier.clone();
+            let acme_order_auth_challenges = auth_info.challenges.clone();
+            debug!("[####] acme_order_auth_identifier: {:?}", acme_order_auth_identifier);
+            debug!("[####] acme_order_auth_challenges: {:?}", acme_order_auth_challenges);
 
             // 获取 [DNS-01] 授权挑战...
-            let mut acme_order_auth_challenge = dns_challenge.unwrap().clone();
+            let mut acme_order_auth_challenge = acme_order_auth_challenges.iter().find(|challenge| challenge.types == "dns-01").unwrap().clone();
 
-            // 获取挑战...
+            debug!("[####][DNS-01 授权挑战] acme_order_auth_challenge: {:?}", acme_order_auth_challenge);
+
+            // 获取挑战参数...
             let token = acme_order_auth_challenge.token.clone();
             let types = acme_order_auth_challenge.types.clone();
             let url = acme_order_auth_challenge.url.clone();
@@ -838,12 +841,7 @@ impl AcmeOrderData {
             //let challenge_token = b64(&hash(MessageDigest::sha256(), auth_key_token.as_bytes())?);
 
             // 获取挑战签名...
-            let acme_account_order_auth_challenge = AcmeOrderAuthChallenge {
-                ctype: types,
-                url: url,
-                token: token,
-                auth_key_token: auth_key_token.clone(),
-            };
+            let acme_account_order_auth_challenge = AcmeOrderAuthChallenge { types, url, token, auth_key_token: auth_key_token.clone() };
             let auth_challenge_token = acme_account_order_auth_challenge.signature().unwrap();
             info!("[域名挑战验证签名 `dns-01` TXT解析值] authorization challenge info: [auth_challenge_token: {:?}][auth_key_thumbprint: {:?}][auth_key_token: {:?}]", auth_challenge_token, auth_key_thumbprint, auth_key_token);
 
@@ -857,6 +855,7 @@ impl AcmeOrderData {
             // 推入授权列表...
             acme_order_auth_list.push(account_auth_data);
         }
+        println!("\n");
 
         Ok(acme_order_auth_list)
     }
@@ -902,7 +901,7 @@ impl AcmeOrderData {
 
                 // 获取挑战签名...
                 let acme_account_order_auth_challenge = AcmeOrderAuthChallenge {
-                    ctype: types.clone(),
+                    types: types.clone(),
                     url: url.clone(),
                     token: token.clone(),
                     auth_key_token: auth_key_token.clone(),
@@ -936,7 +935,7 @@ impl AcmeOrderData {
 
     /// Triggers validation.
     pub fn validate(&self, acme_account: &AcmeAccountData, challenge: AcmeOrderAuthChallenge) -> Result<()> {
-        info!("[挑战验证] -> Triggering {} validation", challenge.ctype);
+        info!("[挑战验证] -> Triggering {} validation", challenge.types);
 
         // 获取请求的url
         //let url = challenge.get_acme_resource_url(resource).ok_or(format!("URL for resource: {} not found", resource))?;
@@ -967,7 +966,7 @@ impl AcmeOrderData {
         //let mut response = client.post(&challenge.url).body(&payload[..]).send()?;
         let mut response = client.post(&challenge.url)
             .headers(headers)
-            .body(payload)
+            .body(to_string(&payload)?)
             .send()?;
 
         // 获取挑战验证请求响应数据...
@@ -1050,7 +1049,7 @@ impl AcmeOrderData {
             .headers(headers)
             //.body(&jws[..])
             //.body(jws)
-            .body(payload)
+            .body(to_string(&payload)?)
             .send()?;
 
         // 读取响应数据
@@ -1184,18 +1183,18 @@ impl AcmeOrderCreator {
         let private_key = &account.private_key;
         let account_url = &account.account_url;
 
-        let (status, resp, response_headers) = account.directory().request(&private_key, "newOrder", map, Some(account_url.clone()))?;
+        let (status, response_headers, response_data) = account.directory().request(&private_key, "newOrder", map, Some(account_url.clone()))?;
 
-        debug!("[创建订单请求结果][status: {:?}][resp: {:?}][response_headers: {:?}]", status, resp, response_headers);
+        debug!("[创建订单请求结果][status: {:?}][response_headers: {:?}][response_data: {:?}]", status, response_headers, response_data);
 
         match status {
             StatusCode::OK => info!("[订单创建成功] -> Order successfully ok"),
             StatusCode::CREATED => info!("[订单创建成功] -> Order successfully created"),
-            _ => return Err(ErrorKind::AcmeServerError(resp).into()),
+            _ => return Err(ErrorKind::AcmeServerError(response_data).into()),
         };
 
         // 解析结构体数据...
-        let acme_order_response: AcmeOrderResponse = serde_json::from_str(&resp.to_string())?;
+        let acme_order_response: AcmeOrderResponse = serde_json::from_str(&response_data.to_string())?;
 
         // 账户地址...
         let order_url = response_headers.get("location").unwrap().to_str().unwrap();
@@ -1397,7 +1396,7 @@ impl AcmeSignedCertificate {
 /// A verification challenge.
 pub struct AcmeOrderAuthChallenge {
     /// Type of verification challenge. Usually `http-01`, `dns-01` for letsencrypt.
-    pub ctype: String,
+    pub types: String,
     /// URL to trigger challenge.
     pub url: String,
     /// AcmeOrderAuthChallenge token.
@@ -1415,7 +1414,7 @@ impl AcmeOrderAuthChallengeList {
     /// Pattern is used in `starts_with` for type comparison.
     pub fn get_challenge(&self, pattern: &str) -> Option<&AcmeOrderAuthChallenge> {
         for challenge in &self.0 {
-            if challenge.ctype().starts_with(pattern) {
+            if challenge.types().starts_with(pattern) {
                 return Some(challenge);
             }
         }
@@ -1466,8 +1465,8 @@ impl AcmeOrderAuthChallenge {
     }
 
     /// Returns challenge type, usually `http-01` or `dns-01` for Let's Encrypt.
-    pub fn ctype(&self) -> &str {
-        &self.ctype
+    pub fn types(&self) -> &str {
+        &self.types
     }
 
     /// Returns challenge token
