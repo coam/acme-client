@@ -347,6 +347,8 @@ impl AcmeAuthDirectory {
         let mut response = client.get(url).send()?;
         let mut content = String::new();
         response.read_to_string(&mut content)?;
+
+        // 构造 AcmeDirectory
         Ok(AcmeAuthDirectory {
             acme_api: url.to_owned(),
             auth_directory: from_str(&content)?,
@@ -430,7 +432,7 @@ impl AcmeAuthDirectory {
             .send()?;
 
         // ACME 接口请求响应数据
-        let response_json = {
+        let response_value = {
             let mut response_content = String::new();
             response.read_to_string(&mut response_content)?;
             if !response_content.is_empty() {
@@ -441,9 +443,9 @@ impl AcmeAuthDirectory {
         };
 
         // 响应头...
-        let resp_headers = response.headers();
+        let response_headers = response.headers();
 
-        Ok((response.status(), response_json, resp_headers.clone()))
+        Ok((response.status(), response_value, response_headers.clone()))
     }
 
     /// Makes a Flattened JSON Web Signature from payload
@@ -605,7 +607,7 @@ impl AcmeAccountData {
 
     /// Revokes a signed certificate
     pub fn revoke_certificate(&self, cert: &X509) -> Result<()> {
-        let (status, resp, resp_headers) = {
+        let (status, resp, response_headers) = {
             let mut map = HashMap::new();
             map.insert("certificate".to_owned(), b64(&cert.to_der()?));
 
@@ -645,7 +647,7 @@ impl AcmeAccountData {
     // 创建订单构造器...
     pub fn acme_order_creator(&self) -> AcmeOrderCreator {
         AcmeOrderCreator {
-            acme_order_identifier: None,
+            acme_order_identifiers: None,
         }
     }
 }
@@ -744,7 +746,7 @@ pub struct AcmeOrderData {
     pub account_url: String,
     pub order_url: String,
     pub finalize_url: String,
-    pub certificate: Option<String>,
+    pub certificate_url: Option<String>,
     //private_key: PKey<openssl::pkey::Private>,
     pub authorizations: Vec<String>,
     pub identifiers: Vec<AcmeOrderIdentifier>,
@@ -771,12 +773,12 @@ impl AcmeOrderData {
             // copy the response body directly to stdout
             //std::io::copy(&mut response, &mut std::io::stdout())?;
 
-            //trace!("[+++][response.status(): {:?}]response.headers():\n{:?}", response.status(), response.headers());
-            trace!("[+++]response: \n{:?}", response);
+            //trace!("[---][response.status(): {:?}]response.headers():\n{:?}", response.status(), response.headers());
+            trace!("[---]response: \n{:?}", response);
 
             // 获取授权数据...
             let acme_order_auth_response: AcmeOrderAuthResponse = response.json()?;
-            info!("[账户订单验证挑战][+++]response.acme_order_auth_response: \n{:?}", acme_order_auth_response);
+            info!("[账户订单验证挑战]response.acme_order_auth_response: \n{:?}", acme_order_auth_response);
 
             // 依次读取授权数据
             let acme_order_auth_identifier = acme_order_auth_response.identifier.clone();
@@ -786,17 +788,6 @@ impl AcmeOrderData {
 
             // 过滤查询 dns-01 挑战...
             let acme_order_auth_challenge = acme_order_auth_challenges.iter().find(|challenge| challenge.types == "dns-01").unwrap();
-
-            // 获取 [DNS-01] 授权挑战...
-            //let mut acme_order_auth_challenge = dns_challenge.unwrap().clone();
-
-            // 获取挑战...
-            let token = acme_order_auth_challenge.token.clone();
-            let types = acme_order_auth_challenge.types.clone();
-            let url = acme_order_auth_challenge.url.clone();
-
-            // 授权挑战数据...
-            //let account_auth_data = AcmeOrderAuthData { acme_order_auth_identifier, acme_order_auth_challenge };
 
             // 推入授权列表...
             self.auth_list.push(acme_order_auth_response);
@@ -964,7 +955,7 @@ impl AcmeOrderData {
             acme_account.directory().jws(&challenge.url, acme_account.private_key(), map, Some(acme_account.account_url.clone()))?
         };
 
-        //debug!("[+++][&challenge.url: {}][payload: {}]", &challenge.url, payload);
+        //debug!("[&challenge.url: {}][payload: {}]", &challenge.url, payload);
 
         // 添加 [application/jose+json] 请求头
         let mut headers = HeaderMap::new();
@@ -980,29 +971,29 @@ impl AcmeOrderData {
             .send()?;
 
         // 获取挑战验证请求响应数据...
-        let mut response_json: Value = {
+        let mut response_value: Value = {
             let mut response_content = String::new();
             response.read_to_string(&mut response_content)?;
             from_str(&response_content)?
         };
 
-        debug!("[+++][status: {}][response_json: {}]", response.status(), response_json);
+        debug!("[---][status: {}][response_value: {}]", response.status(), response_value);
 
         // 判断响应状态码...
         if response.status() != StatusCode::OK {
-            error!("[---][status: {}][response_json: {}]", response.status(), response_json);
-            return Err(ErrorKind::AcmeServerError(response_json).into());
+            error!("[---][status: {}][response_value: {}]", response.status(), response_value);
+            return Err(ErrorKind::AcmeServerError(response_value).into());
         }
 
         loop {
             // 验证挑战状态
-            let status = response_json.as_object()
+            let status = response_value.as_object()
                 .and_then(|o| o.get("status"))
                 .and_then(|s| s.as_str())
                 .ok_or("Status not found")?
                 .to_owned();
 
-            debug!("[LOOP][status: {}][response_json: {}]", status, response_json);
+            debug!("[LOOP][status: {}][response_value: {}]", status, response_value);
 
             // 判断验证状态...
             if status == "pending" {
@@ -1010,19 +1001,19 @@ impl AcmeOrderData {
 
                 // 请求结果
                 let mut response = client.get(&challenge.url).send()?;
-                response_json = {
+                response_value = {
                     let mut response_content = String::new();
                     response.read_to_string(&mut response_content)?;
                     from_str(&response_content)?
                 };
 
-                warn!("[challenge validate status: pending][response_json: {}]", response_json);
+                warn!("[challenge validate status: pending][response_value: {}]", response_value);
             } else if status == "valid" {
                 info!("[循环挑战验证状态] -> [challenge validate status: valid], trying next...");
                 return Ok(());
             } else if status == "invalid" {
                 error!("[循环挑战验证状态] -> [challenge validate status: invalid], trying ended...");
-                return Err(ErrorKind::AcmeServerError(response_json).into());
+                return Err(ErrorKind::AcmeServerError(response_value).into());
             }
 
             // 循环等待验证...
@@ -1045,7 +1036,7 @@ impl AcmeOrderData {
             acme_account.directory().jws(finalize_url, acme_account.private_key(), map.clone(), Some(acme_account.account_url.clone()))?
         };
 
-        //debug!("[+++][finalize_url: {}][payload: {}]", finalize_url, payload);
+        //debug!("[finalize_url: {}][payload: {}]", finalize_url, payload);
 
         // 添加 [application/jose+json] 请求头
         let mut headers = HeaderMap::new();
@@ -1064,7 +1055,7 @@ impl AcmeOrderData {
 
         // 读取响应数据
         //let body = response.text()?;
-        //info!("[+++]response.body: \n{:?}", body);
+        //info!("[---]response.body: \n{:?}", body);
 
         // [How do you make a GET request in Rust?](https://stackoverflow.com/questions/43222429/how-do-you-make-a-get-request-in-rust)
         // copy the response body directly to stdout
@@ -1086,7 +1077,7 @@ impl AcmeOrderData {
         trace!("[#]response: \n{:?}", response);
 
         // 复制证书...
-        self.certificate = acme_order_response.certificate;
+        self.certificate_url = acme_order_response.certificate;
 
         Ok(self)
     }
@@ -1098,21 +1089,19 @@ impl AcmeOrderData {
         info!("[验证订单签发证书流程] -> Signing certificate");
 
         // 判断是否经过验证...
-        if let Some(certificate_url) = self.certificate.clone() {
-            debug!("订单域名验证通过-可请求签发证书!");
-        } else {
+        if self.certificate_url == None {
             panic!("未获取证书文件地址-无法签发证书!");
         }
 
-        debug!("[请求签发订单域名证书] get certificate...");
+        let certificate_url = self.certificate_url.clone().unwrap();
 
-        let certificate_url = self.certificate.clone().unwrap();
+        debug!("[请求签发订单域名证书] get certificate [certificate_url: {:?}]...", certificate_url);
 
         // 发起请求...
         let client = Client::new();
         let mut response = client.get(certificate_url.as_str()).send()?;
 
-        trace!("[---][response.status(): {:?}][response.headers():\n{:?}]", response.status(), response.headers());
+        //trace!("[---][response.status(): {:?}][response.headers():\n{:?}]", response.status(), response.headers());
         trace!("[---]response: \n{:?}", response);
 
         // [How do you make a GET request in Rust?](https://stackoverflow.com/questions/43222429/how-do-you-make-a-get-request-in-rust)
@@ -1122,12 +1111,12 @@ impl AcmeOrderData {
         //if response.status() != StatusCode::CREATED {
         if response.status() != StatusCode::OK {
             // 获取响应的数据
-            let response_json = {
+            let response_value = {
                 let mut response_content = String::new();
                 response.read_to_string(&mut response_content)?;
                 from_str(&response_content)?
             };
-            return Err(ErrorKind::AcmeServerError(response_json).into());
+            return Err(ErrorKind::AcmeServerError(response_value).into());
         }
 
         // 创建证书...
@@ -1150,9 +1139,9 @@ impl AcmeOrderData {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct AcmeOrderResponse {
     pub status: String,
+    pub expires: String,
     pub finalize: String,
     pub certificate: Option<String>,
-    pub expires: String,
     pub authorizations: Vec<String>,
     pub identifiers: Vec<AcmeOrderIdentifier>,
 }
@@ -1168,13 +1157,13 @@ pub struct AcmeOrderIdentifier {
 /// Helper to create an order.
 //#[derive(Serialize, Deserialize, Debug)]
 pub struct AcmeOrderCreator {
-    acme_order_identifier: Option<Vec<AcmeOrderIdentifier>>,
+    acme_order_identifiers: Option<Vec<AcmeOrderIdentifier>>,
 }
 
 impl AcmeOrderCreator {
     /// Sets contact email address
-    pub fn identifiers(mut self, acme_order_identifier: Vec<AcmeOrderIdentifier>) -> AcmeOrderCreator {
-        self.acme_order_identifier = Some(acme_order_identifier);
+    pub fn identifiers(mut self, acme_order_identifiers: Vec<AcmeOrderIdentifier>) -> AcmeOrderCreator {
+        self.acme_order_identifiers = Some(acme_order_identifiers);
         self
     }
 
@@ -1187,16 +1176,17 @@ impl AcmeOrderCreator {
         let mut map = HashMap::new();
 
         // 创建订单域名...
-        map.insert("identifiers".to_owned(), &self.acme_order_identifier);
+        map.insert("identifiers".to_owned(), &self.acme_order_identifiers);
 
         info!("[发起创建订单请求参数][resources: createOrder][map: {:?}]", map);
 
+        // ACME 账户配置...
         let private_key = &account.private_key;
         let account_url = &account.account_url;
 
-        let (status, resp, resp_headers) = account.directory().request(&private_key, "newOrder", map, Some(account_url.clone()))?;
+        let (status, resp, response_headers) = account.directory().request(&private_key, "newOrder", map, Some(account_url.clone()))?;
 
-        debug!("[创建订单请求结果][status: {:?}][resp: {:?}][resp_headers: {:?}]", status, resp, resp_headers);
+        debug!("[创建订单请求结果][status: {:?}][resp: {:?}][response_headers: {:?}]", status, resp, response_headers);
 
         match status {
             StatusCode::OK => info!("[订单创建成功] -> Order successfully ok"),
@@ -1208,13 +1198,14 @@ impl AcmeOrderCreator {
         let acme_order_response: AcmeOrderResponse = serde_json::from_str(&resp.to_string())?;
 
         // 账户地址...
-        let order_url = resp_headers.get("location").unwrap().to_str().unwrap();
+        let order_url = response_headers.get("location").unwrap().to_str().unwrap();
 
+        // 构造订单数据
         Ok(AcmeOrderData {
             account_url: account_url.clone(),
             order_url: order_url.to_string(),
             finalize_url: acme_order_response.finalize,
-            certificate: None,
+            certificate_url: None,
             authorizations: acme_order_response.authorizations,
             identifiers: acme_order_response.identifiers,
             auth_list: Vec::<AcmeOrderAuthResponse>::new(),
