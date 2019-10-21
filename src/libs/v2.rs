@@ -312,42 +312,6 @@ pub struct AcmeAuthDirectory {
     auth_directory: Value,
 }
 
-/// Registered account object.
-///
-/// Every operation requires a registered account. To register an `Account` you can use
-/// `AcmeAuthDirectory::register_account` method.
-///
-/// See [AcmeAccountRegistration](struct.AcmeAccountRegistration.html) helper for more details.
-pub struct AcmeAccountData {
-    auth_directory: AcmeAuthDirectory,
-    account_url: String,
-    private_key: PKey<openssl::pkey::Private>,
-}
-
-/// Helper to register an account.
-pub struct AcmeAccountRegistration {
-    auth_directory: AcmeAuthDirectory,
-    private_key: Option<PKey<openssl::pkey::Private>>,
-    email: Option<String>,
-    contact: Option<Vec<String>>,
-    agreement: Option<String>,
-}
-
-/// Helper to sign a certificate.
-pub struct AcmeCertificateSigner<'a> {
-    account: &'a AcmeAccountData,
-    domains: &'a [&'a str],
-    private_key: Option<PKey<openssl::pkey::Private>>,
-    csr: Option<X509Req>,
-}
-
-/// A signed certificate.
-pub struct AcmeSignedCertificate {
-    cert: X509,
-    csr: X509Req,
-    private_key: PKey<openssl::pkey::Private>,
-}
-
 impl AcmeAuthDirectory {
     /// Creates a AcmeAuthDirectory from
     /// [`LETS_ENCRYPT_DIRECTORY_URL`](constant.LETS_ENCRYPT_DIRECTORY_URL.html).
@@ -547,7 +511,7 @@ impl AcmeAuthDirectory {
 pub struct AcmeOrderAuthResponse {
     status: String,
     expires: String,
-    pub identifier: AcmeOrderDataIdentifier,
+    pub identifier: AcmeOrderIdentifier,
     // 授权挑战方案列表
     pub challenges: Vec<AcmeOrderAuthorizationChallenge>,
 }
@@ -556,7 +520,7 @@ pub struct AcmeOrderAuthResponse {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AcmeOrderAuthData {
     // 订单身份凭证
-    pub auth_domain_identifier: AcmeOrderDataIdentifier,
+    pub auth_domain_identifier: AcmeOrderIdentifier,
     // DNS-01 授权验证挑战
     pub auth_dns_challenge: AcmeOrderAuthorizationChallenge,
 }
@@ -582,6 +546,18 @@ pub struct AcmeOrderAuthorizationChallenge {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AcmeOrderAuthorizationChallengeValidationRecord {
     hostname: String,
+}
+
+/// Registered account object.
+///
+/// Every operation requires a registered account. To register an `Account` you can use
+/// `AcmeAuthDirectory::register_account` method.
+///
+/// See [AcmeAccountRegistration](struct.AcmeAccountRegistration.html) helper for more details.
+pub struct AcmeAccountData {
+    auth_directory: AcmeAuthDirectory,
+    account_url: String,
+    private_key: PKey<openssl::pkey::Private>,
 }
 
 impl AcmeAccountData {
@@ -667,9 +643,18 @@ impl AcmeAccountData {
     // 创建订单构造器...
     pub fn acme_order_creator(&self) -> AcmeOrderCreator {
         AcmeOrderCreator {
-            order_identifiers: None,
+            acme_order_identifier: None,
         }
     }
+}
+
+/// Helper to register an account.
+pub struct AcmeAccountRegistration {
+    auth_directory: AcmeAuthDirectory,
+    private_key: Option<PKey<openssl::pkey::Private>>,
+    email: Option<String>,
+    contact: Option<Vec<String>>,
+    agreement: Option<String>,
 }
 
 impl AcmeAccountRegistration {
@@ -750,12 +735,6 @@ impl AcmeAccountRegistration {
     }
 }
 
-/// Helper to create an order.
-//#[derive(Serialize, Deserialize, Debug)]
-pub struct AcmeOrderCreator {
-    order_identifiers: Option<Vec<AcmeOrderDataIdentifier>>,
-}
-
 // 订单数据
 #[derive(Serialize, Deserialize, Debug)]
 pub struct AcmeOrderData {
@@ -766,7 +745,7 @@ pub struct AcmeOrderData {
     pub certificate: Option<String>,
     //private_key: PKey<openssl::pkey::Private>,
     pub authorizations: Vec<String>,
-    pub identifiers: Vec<AcmeOrderDataIdentifier>,
+    pub identifiers: Vec<AcmeOrderIdentifier>,
     // 获取订单授权挑战
     pub auth_list: Vec<AcmeOrderAuthResponse>,
 }
@@ -1095,12 +1074,12 @@ impl AcmeOrderData {
         // copy the response body directly to stdout
         //std::io::copy(&mut res, &mut std::io::stdout())?;
 
-        let mut order_response: AcmeOrderResponse = response.json()?;
-        trace!("[#]response.order_response: \n{:?}", order_response);
+        let mut acme_order_response: AcmeOrderResponse = response.json()?;
+        trace!("[#]response.acme_order_response: \n{:?}", acme_order_response);
 
         // 判断是否经过验证...
-        if order_response.status != "valid" {
-            panic!("未验证通过!");
+        if acme_order_response.status != "valid" {
+            panic!("订单未验证通过!");
         }
 
         // [How do you make a GET request in Rust?](https://stackoverflow.com/questions/43222429/how-do-you-make-a-get-request-in-rust)
@@ -1111,7 +1090,7 @@ impl AcmeOrderData {
         trace!("[#]response: \n{:?}", response);
 
         // 复制证书...
-        self.certificate = order_response.certificate;
+        self.certificate = acme_order_response.certificate;
 
         Ok(self)
     }
@@ -1180,21 +1159,27 @@ pub struct AcmeOrderResponse {
     pub certificate: Option<String>,
     pub expires: String,
     pub authorizations: Vec<String>,
-    pub identifiers: Vec<AcmeOrderDataIdentifier>,
+    pub identifiers: Vec<AcmeOrderIdentifier>,
 }
 
 // DNS 解析记录
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct AcmeOrderDataIdentifier {
+pub struct AcmeOrderIdentifier {
     #[serde(rename = "type")]
     pub types: String,
     pub value: String,
 }
 
+/// Helper to create an order.
+//#[derive(Serialize, Deserialize, Debug)]
+pub struct AcmeOrderCreator {
+    acme_order_identifier: Option<Vec<AcmeOrderIdentifier>>,
+}
+
 impl AcmeOrderCreator {
     /// Sets contact email address
-    pub fn identifiers(mut self, order_identifiers: Vec<AcmeOrderDataIdentifier>) -> AcmeOrderCreator {
-        self.order_identifiers = Some(order_identifiers);
+    pub fn identifiers(mut self, acme_order_identifier: Vec<AcmeOrderIdentifier>) -> AcmeOrderCreator {
+        self.acme_order_identifier = Some(acme_order_identifier);
         self
     }
 
@@ -1207,7 +1192,7 @@ impl AcmeOrderCreator {
         let mut map = HashMap::new();
 
         // 创建订单域名...
-        map.insert("identifiers".to_owned(), &self.order_identifiers);
+        map.insert("identifiers".to_owned(), &self.acme_order_identifier);
 
         info!("[发起创建订单请求参数][resources: createOrder][map: {:?}]", map);
 
@@ -1225,7 +1210,7 @@ impl AcmeOrderCreator {
         };
 
         // 解析结构体数据...
-        let order_response: AcmeOrderResponse = serde_json::from_str(&resp.to_string())?;
+        let acme_order_response: AcmeOrderResponse = serde_json::from_str(&resp.to_string())?;
 
         // 账户地址...
         let order_url = resp_headers.get("location").unwrap().to_str().unwrap();
@@ -1233,13 +1218,21 @@ impl AcmeOrderCreator {
         Ok(AcmeOrderData {
             account_url: account_url.clone(),
             order_url: order_url.to_string(),
-            finalize_url: order_response.finalize,
+            finalize_url: acme_order_response.finalize,
             certificate: None,
-            authorizations: order_response.authorizations,
-            identifiers: order_response.identifiers,
+            authorizations: acme_order_response.authorizations,
+            identifiers: acme_order_response.identifiers,
             auth_list: Vec::<AcmeOrderAuthResponse>::new(),
         })
     }
+}
+
+/// Helper to sign a certificate.
+pub struct AcmeCertificateSigner<'a> {
+    account: &'a AcmeAccountData,
+    domains: &'a [&'a str],
+    private_key: Option<PKey<openssl::pkey::Private>>,
+    csr: Option<X509Req>,
 }
 
 impl<'a> AcmeCertificateSigner<'a> {
@@ -1287,6 +1280,13 @@ impl<'a> AcmeCertificateSigner<'a> {
 
         Ok(self)
     }
+}
+
+/// A signed certificate.
+pub struct AcmeSignedCertificate {
+    cert: X509,
+    csr: X509Req,
+    private_key: PKey<openssl::pkey::Private>,
 }
 
 impl AcmeSignedCertificate {
@@ -1408,9 +1408,6 @@ impl AcmeSignedCertificate {
     }
 }
 
-/// Identifier authorization object.
-pub struct AcmeOrderAuthChallengeList(pub Vec<AcmeOrderAuthChallenge>);
-
 /// A verification challenge.
 pub struct AcmeOrderAuthChallenge {
     /// Type of verification challenge. Usually `http-01`, `dns-01` for letsencrypt.
@@ -1422,6 +1419,9 @@ pub struct AcmeOrderAuthChallenge {
     /// Key authorization.
     pub key_authorization: String,
 }
+
+/// Identifier authorization object.
+pub struct AcmeOrderAuthChallengeList(pub Vec<AcmeOrderAuthChallenge>);
 
 impl AcmeOrderAuthChallengeList {
     /// Gets a challenge.
