@@ -522,7 +522,7 @@ pub struct AcmeOrderAuthData {
     // 订单身份凭证
     pub acme_order_auth_identifier: AcmeOrderIdentifier,
     // DNS-01 授权验证挑战
-    pub auth_dns_challenge: AcmeOrderAuthorizationChallenge,
+    pub acme_order_auth_challenge: AcmeOrderAuthorizationChallenge,
 }
 
 // AcmeOrderAuthChallenge 挑战...
@@ -573,17 +573,16 @@ impl AcmeAccountData {
         Ok(cert)
     }
 
-    /// Creates a new `AcmeCertificateSigner` helper to sign a certificate for list of domains.
+    /// Creates a new `AcmeCertificateSigner` helper to sign a certificate for list of acme_domains.
     ///
-    /// `domains` must be list of the domain names you want to sign a certificate for.
+    /// `acme_domains` must be list of the domain names you want to sign a certificate for.
     /// Currently there is no way to retrieve subject alt names from a X509Req.
     ///
     /// You can additionally use your own private key and CSR.
     /// See [`AcmeCertificateSigner`](struct.AcmeCertificateSigner.html) for details.
-    pub fn certificate_signer<'a>(&'a self, domains: &'a [&'a str]) -> AcmeCertificateSigner<'a> {
+    pub fn certificate_signer<'a>(&'a self, acme_domains: &'a [&'a str]) -> AcmeCertificateSigner<'a> {
         AcmeCertificateSigner {
-            account: self,
-            domains: domains,
+            acme_domains,
             private_key: None,
             csr: None,
         }
@@ -773,7 +772,7 @@ impl AcmeOrderData {
             trace!("[+++]response: \n{:?}", response);
 
             // 获取授权数据...
-            let mut acme_order_auth_response: AcmeOrderAuthResponse = response.json()?;
+            let acme_order_auth_response: AcmeOrderAuthResponse = response.json()?;
             info!("[账户订单验证挑战][+++]response.acme_order_auth_response: \n{:?}", acme_order_auth_response);
 
             // 依次读取授权数据
@@ -786,7 +785,7 @@ impl AcmeOrderData {
             let acme_order_auth_challenge = acme_order_auth_challenges.iter().find(|challenge| challenge.types == "dns-01").unwrap();
 
             // 获取 [DNS-01] 授权挑战...
-            //let mut auth_dns_challenge = dns_challenge.unwrap().clone();
+            //let mut acme_order_auth_challenge = dns_challenge.unwrap().clone();
 
             // 获取挑战...
             let token = acme_order_auth_challenge.token.clone();
@@ -830,18 +829,18 @@ impl AcmeOrderData {
             }
 
             // 获取 [DNS-01] 授权挑战...
-            let mut auth_dns_challenge = dns_challenge.unwrap().clone();
+            let mut acme_order_auth_challenge = dns_challenge.unwrap().clone();
 
             // 获取挑战...
-            let token = auth_dns_challenge.token.clone();
-            let types = auth_dns_challenge.types.clone();
-            let url = auth_dns_challenge.url.clone();
+            let token = acme_order_auth_challenge.token.clone();
+            let types = acme_order_auth_challenge.types.clone();
+            let url = acme_order_auth_challenge.url.clone();
 
             // This seems really cryptic but it's not
             // https://tools.ietf.org/html/draft-ietf-acme-acme-05#section-7.1
             // key-authz = token || '.' || base64url(JWK\_Thumbprint(accountKey))
             let auth_key_thumbprint = b64(&hash(MessageDigest::sha256(), &to_string(&acme_account.directory().jwk(acme_account.private_key())?)?.into_bytes())?);
-            let auth_key_token = format!("{}.{}", auth_dns_challenge.token, auth_key_thumbprint);
+            let auth_key_token = format!("{}.{}", acme_order_auth_challenge.token, auth_key_thumbprint);
             //let challenge_token = b64(&hash(MessageDigest::sha256(), auth_key_token.as_bytes())?);
 
             // 获取挑战签名...
@@ -855,11 +854,11 @@ impl AcmeOrderData {
             info!("[域名挑战验证签名 `dns-01` TXT解析值] authorization challenge info: [auth_challenge_token: {:?}][auth_key_thumbprint: {:?}][auth_key_token: {:?}]", auth_challenge_token, auth_key_thumbprint, auth_key_token);
 
             // 保存授权...
-            auth_dns_challenge.auth_key_token = Some(auth_key_token);
-            auth_dns_challenge.auth_challenge_token = Some(auth_challenge_token);
+            acme_order_auth_challenge.auth_key_token = Some(auth_key_token);
+            acme_order_auth_challenge.auth_challenge_token = Some(auth_challenge_token);
 
             // 授权挑战数据...
-            let account_auth_data = AcmeOrderAuthData { acme_order_auth_identifier, auth_dns_challenge };
+            let account_auth_data = AcmeOrderAuthData { acme_order_auth_identifier, acme_order_auth_challenge };
 
             // 推入授权列表...
             acme_order_auth_list.push(account_auth_data);
@@ -876,26 +875,26 @@ impl AcmeOrderData {
 
             // 依次读取授权数据
             let acme_order_auth_identifier = auth_acme_order_data.acme_order_auth_identifier.clone();
-            let auth_dns_challenge = auth_acme_order_data.auth_dns_challenge.clone();
+            let acme_order_auth_challenge = auth_acme_order_data.acme_order_auth_challenge.clone();
             info!("[####]循环处理-挑战订单: acme_order_auth_identifier: {:?}", acme_order_auth_identifier);
-            info!("[####]循环处理-调整数据: auth_dns_challenge: {:?}", auth_dns_challenge);
+            info!("[####]循环处理-调整数据: acme_order_auth_challenge: {:?}", acme_order_auth_challenge);
 
             // 判断是否已经过验证
-            if auth_dns_challenge.status == "valid" {
+            if acme_order_auth_challenge.status == "valid" {
                 warn!("该挑战已为验证状态,取消重复发起挑战验证请求!");
                 continue;
             }
 
             // 获取挑战...
-            let token = auth_dns_challenge.token.clone();
-            let types = auth_dns_challenge.types.clone();
-            let url = auth_dns_challenge.url.clone();
-            let auth_dns_challenge_token = auth_dns_challenge.auth_challenge_token.clone().unwrap();
-            let auth_key_token = auth_dns_challenge.auth_key_token.clone().unwrap();
+            let token = acme_order_auth_challenge.token.clone();
+            let types = acme_order_auth_challenge.types.clone();
+            let url = acme_order_auth_challenge.url.clone();
+            let acme_order_auth_challenge_token = acme_order_auth_challenge.auth_challenge_token.clone().unwrap();
+            let auth_key_token = acme_order_auth_challenge.auth_key_token.clone().unwrap();
 
             // 获取挑战签名...
-            //let signature = auth_dns_challenge.signature().unwrap();
-            let signature = auth_dns_challenge_token;
+            //let signature = acme_order_auth_challenge.signature().unwrap();
+            let signature = acme_order_auth_challenge_token;
 
             // 延时计数...
             let mut try_ts = 0;
@@ -1030,7 +1029,7 @@ impl AcmeOrderData {
 
     /// finalize_order.
     /// CSR and PKey will be generated if it doesn't set or loaded first.
-    pub fn finalize_order(&mut self, acme_certificate_signer: &AcmeCertificateSigner) -> Result<&AcmeOrderData> {
+    pub fn finalize_order(&mut self, acme_account: &AcmeAccountData, acme_certificate_signer: &AcmeCertificateSigner) -> Result<&AcmeOrderData> {
         // 获取请求的url
         let finalize_url = &self.finalize_url;
 
@@ -1040,7 +1039,7 @@ impl AcmeOrderData {
 
         // 设置载荷...
         let payload = {
-            acme_certificate_signer.account.directory().jws(finalize_url, acme_certificate_signer.account.private_key(), map.clone(), Some(acme_certificate_signer.account.account_url.clone()))?
+            acme_account.directory().jws(finalize_url, acme_account.private_key(), map.clone(), Some(acme_account.account_url.clone()))?
         };
 
         debug!("[+++][finalize_url: {}][payload: {}]", finalize_url, payload);
@@ -1222,8 +1221,8 @@ impl AcmeOrderCreator {
 
 /// Helper to sign a certificate.
 pub struct AcmeCertificateSigner<'a> {
-    account: &'a AcmeAccountData,
-    domains: &'a [&'a str],
+    //account: &'a AcmeAccountData,
+    acme_domains: &'a [&'a str],
     private_key: Option<PKey<openssl::pkey::Private>>,
     csr: Option<X509Req>,
 }
@@ -1265,7 +1264,7 @@ impl<'a> AcmeCertificateSigner<'a> {
     pub fn create_certificate(mut self) -> Result<AcmeCertificateSigner<'a>> {
         // 创建证书...
         let private_key = self.private_key.unwrap_or(gen_key().unwrap());
-        let csr = self.csr.unwrap_or(gen_csr(&private_key, self.domains).unwrap());
+        let csr = self.csr.unwrap_or(gen_csr(&private_key, self.acme_domains).unwrap());
 
         // 创建证书...
         self.private_key = Some(private_key);
