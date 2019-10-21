@@ -1062,7 +1062,7 @@ impl AcmeOrderData {
 
         // 读取响应数据
         //let body = response.text()?;
-        //info!("[####################][+++]response.body: \n{:?}", body);
+        //info!("[+++]response.body: \n{:?}", body);
 
         // [How do you make a GET request in Rust?](https://stackoverflow.com/questions/43222429/how-do-you-make-a-get-request-in-rust)
         // copy the response body directly to stdout
@@ -1110,9 +1110,8 @@ impl AcmeOrderData {
         let client = Client::new();
         let mut response = client.get(certificate_url.as_str()).send()?;
 
-        trace!("[####################][---][status: {:?}]", response.status());
-        trace!("[####################][---]Headers:\n{:?}", response.headers());
-        trace!("[####################][---]response: \n{:?}", response);
+        trace!("[---][response.status(): {:?}][response.headers():\n{:?}]", response.status(), response.headers());
+        trace!("[---]response: \n{:?}", response);
 
         // [How do you make a GET request in Rust?](https://stackoverflow.com/questions/43222429/how-do-you-make-a-get-request-in-rust)
         // copy the response body directly to stdout
@@ -1134,7 +1133,7 @@ impl AcmeOrderData {
         response.read_to_end(&mut crt_der)?;
 
         //let s = String::from_utf8_lossy(&crt_der);
-        //info!("[####################][---]result: \n{:?}", s);
+        //info!("[---]result: \n{:?}", s);
 
         //let cert = X509::from_der(&crt_der)?;
         let cert = X509::from_pem(&crt_der)?;
