@@ -526,9 +526,9 @@ pub struct AcmeOrderAuthResponse {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AcmeOrderAuthData {
     // 订单身份凭证
-    pub acme_order_auth_identifier: AcmeOrderIdentifier,
+    pub auth_identifier: AcmeOrderIdentifier,
     // DNS-01 授权验证挑战
-    pub acme_order_auth_challenge: AcmeOrderAuthorizationChallenge,
+    pub auth_challenge: AcmeOrderAuthorizationChallenge,
 }
 
 // AcmeOrderAuthChallenge 挑战...
@@ -782,16 +782,16 @@ impl AcmeOrderData {
             info!("[账户订单域名授权验证挑战方案]response.acme_order_auth_response: \n{:?}", acme_order_auth_response);
 
             // 依次读取授权挑战数据
-            let acme_order_auth_identifier = acme_order_auth_response.identifier.clone();
-            let acme_order_auth_challenges = acme_order_auth_response.challenges.clone();
-            //debug!("[####] acme_order_auth_identifier: {:?}", acme_order_auth_identifier);
-            //debug!("[####] acme_order_auth_challenges: {:?}", acme_order_auth_challenges);
+            let auth_identifier = acme_order_auth_response.identifier.clone();
+            let auth_challenges = acme_order_auth_response.challenges.clone();
+            //debug!("[####] auth_identifier: {:?}", auth_identifier);
+            //debug!("[####] auth_challenges: {:?}", auth_challenges);
 
             // 过滤查询 dns-01 挑战...
-            let acme_order_auth_challenge = acme_order_auth_challenges.iter().find(|challenge| challenge.types == "dns-01");
+            let auth_challenge = auth_challenges.iter().find(|challenge| challenge.types == "dns-01");
 
             // 必须包含 `dns-01` 验证请求
-            if let None = acme_order_auth_challenge {
+            if let None = auth_challenge {
                 panic!("[未匹配挑战验证: dns-01,授权验证中断!] -- Find none [dns-01] in challenges");
             }
 
@@ -815,42 +815,42 @@ impl AcmeOrderData {
         // 循环授权挑战验证列表...
         for auth_info in &self.auth_list {
             println!("\n");
-            info!("[为 ACME 订单验证挑战签名] -> [auth_info: {:?}]", auth_info);
+            info!("[为 ACME 订单配置挑战签名] -> [auth_info: {:?}]", auth_info);
 
             // 依次读取授权数据
-            let acme_order_auth_identifier = auth_info.identifier.clone();
-            let acme_order_auth_challenges = auth_info.challenges.clone();
-            debug!("[####] acme_order_auth_identifier: {:?}", acme_order_auth_identifier);
-            debug!("[####] acme_order_auth_challenges: {:?}", acme_order_auth_challenges);
+            let auth_identifier = auth_info.identifier.clone();
+            let auth_challenges = auth_info.challenges.clone();
+            debug!("[####] auth_identifier: {:?}", auth_identifier);
+            debug!("[####] auth_challenges: {:?}", auth_challenges);
 
             // 获取 [DNS-01] 授权挑战...
-            let mut acme_order_auth_challenge = acme_order_auth_challenges.iter().find(|challenge| challenge.types == "dns-01").unwrap().clone();
+            let mut auth_challenge = auth_challenges.iter().find(|challenge| challenge.types == "dns-01").unwrap().clone();
 
-            debug!("[####][DNS-01 授权挑战] acme_order_auth_challenge: {:?}", acme_order_auth_challenge);
+            debug!("[####][DNS-01 授权挑战] auth_challenge: {:?}", auth_challenge);
 
             // 获取挑战参数...
-            let token = acme_order_auth_challenge.token.clone();
-            let types = acme_order_auth_challenge.types.clone();
-            let url = acme_order_auth_challenge.url.clone();
+            let token = auth_challenge.token.clone();
+            let types = auth_challenge.types.clone();
+            let url = auth_challenge.url.clone();
 
             // This seems really cryptic but it's not
             // https://tools.ietf.org/html/draft-ietf-acme-acme-05#section-7.1
             // key-authz = token || '.' || base64url(JWK\_Thumbprint(accountKey))
             let auth_key_thumbprint = b64(&hash(MessageDigest::sha256(), &to_string(&acme_account.directory().jwk(acme_account.private_key())?)?.into_bytes())?);
-            let auth_key_token = format!("{}.{}", acme_order_auth_challenge.token, auth_key_thumbprint);
+            let auth_key_token = format!("{}.{}", auth_challenge.token, auth_key_thumbprint);
             //let challenge_token = b64(&hash(MessageDigest::sha256(), auth_key_token.as_bytes())?);
 
             // 获取挑战签名...
-            let acme_account_order_auth_challenge = AcmeOrderAuthChallenge { types, url, token, auth_key_token: auth_key_token.clone() };
-            let auth_dns_token = acme_account_order_auth_challenge.signature().unwrap();
+            let acme_order_auth_challenge = AcmeOrderAuthChallenge { types, url, token, auth_key_token: auth_key_token.clone() };
+            let auth_dns_token = acme_order_auth_challenge.signature().unwrap();
             info!("[域名挑战验证签名 `dns-01` TXT解析值][auth_dns_token: {:?}][auth_key_thumbprint: {:?}][auth_key_token: {:?}]", auth_dns_token, auth_key_thumbprint, auth_key_token);
 
             // 保存授权...
-            acme_order_auth_challenge.auth_key_token = Some(auth_key_token);
-            acme_order_auth_challenge.auth_dns_token = Some(auth_dns_token);
+            auth_challenge.auth_key_token = Some(auth_key_token);
+            auth_challenge.auth_dns_token = Some(auth_dns_token);
 
             // 授权挑战数据...
-            let account_auth_data = AcmeOrderAuthData { acme_order_auth_identifier, acme_order_auth_challenge };
+            let account_auth_data = AcmeOrderAuthData { auth_identifier, auth_challenge };
 
             // 推入授权列表...
             acme_order_auth_list.push(account_auth_data);
@@ -873,27 +873,23 @@ impl AcmeOrderData {
             info!("[###]循环处理挑战订单: auth_acme_order_data: {:?}", auth_acme_order_data);
 
             // 依次读取授权数据
-            let acme_order_auth_identifier = auth_acme_order_data.acme_order_auth_identifier.clone();
-            let acme_order_auth_challenge = auth_acme_order_data.acme_order_auth_challenge.clone();
-            info!("[####]循环处理-挑战订单: acme_order_auth_identifier: {:?}", acme_order_auth_identifier);
-            info!("[####]循环处理-调整数据: acme_order_auth_challenge: {:?}", acme_order_auth_challenge);
+            let auth_identifier = auth_acme_order_data.auth_identifier.clone();
+            let auth_challenge = auth_acme_order_data.auth_challenge.clone();
+            info!("[####]验证挑战订单: auth_identifier: {:?}", auth_identifier);
+            info!("[####]验证挑战数据: auth_challenge: {:?}", auth_challenge);
 
             // 判断是否已经过验证
-            if acme_order_auth_challenge.status == "valid" {
+            if auth_challenge.status == "valid" {
                 warn!("该挑战已为验证状态,取消重复发起挑战验证请求!");
                 continue;
             }
 
-            // 获取挑战...
-            let token = acme_order_auth_challenge.token.clone();
-            let types = acme_order_auth_challenge.types.clone();
-            let url = acme_order_auth_challenge.url.clone();
-            let auth_dns_token = acme_order_auth_challenge.auth_dns_token.clone().unwrap();
-            let auth_key_token = acme_order_auth_challenge.auth_key_token.clone().unwrap();
-
             // 获取挑战签名...
-            //let signature = acme_order_auth_challenge.signature().unwrap();
-            let signature = auth_dns_token;
+            let token = auth_challenge.token.clone();
+            let types = auth_challenge.types.clone();
+            let url = auth_challenge.url.clone();
+            let auth_dns_token = auth_challenge.auth_dns_token.clone().unwrap();
+            let auth_key_token = auth_challenge.auth_key_token.clone().unwrap();
 
             // 延时计数...
             let mut try_ts = 0;
@@ -906,7 +902,7 @@ impl AcmeOrderData {
                 info!("[循环延时验证,请耐心等待...][acme_name: {}] 尝试延时验证批次[try_ts: {}]", acme_name, try_ts);
 
                 // 获取挑战签名...
-                let acme_account_order_auth_challenge = AcmeOrderAuthChallenge {
+                let acme_order_auth_challenge = AcmeOrderAuthChallenge {
                     types: types.clone(),
                     url: url.clone(),
                     token: token.clone(),
@@ -914,7 +910,7 @@ impl AcmeOrderData {
                 };
 
                 // 发起授权验证...
-                let dns_challenge_results = self.validate(acme_account, acme_account_order_auth_challenge);
+                let dns_challenge_results = self.validate(acme_account, acme_order_auth_challenge);
 
                 // 如果验证成功,则跳出验证请求...
                 if let Ok(()) = dns_challenge_results {
@@ -932,7 +928,7 @@ impl AcmeOrderData {
                     return Err(ErrorKind::AcmeServerError(from_str("验证超时失败!")?).into());
                 }
 
-                warn!("[域名证书][ACME][authorization][acme_name: {}][signature: {:?}]", acme_name, signature);
+                warn!("[域名证书][ACME][authorization][acme_name: {}][auth_dns_token: {:?}]", acme_name, auth_dns_token);
             }
         }
 
