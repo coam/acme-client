@@ -345,6 +345,10 @@ impl AcmeAuthDirectory {
 
         let client = Client::new();
         let mut response = client.get(url).send()?;
+
+        trace!("[ACME-API-RESPONSE-INFO]: \n{:?}", response);
+        //trace!("[ACME-API-RESPONSE-DATA]: \n{}", response_value);
+
         let mut content = String::new();
         response.read_to_string(&mut content)?;
 
@@ -394,6 +398,9 @@ impl AcmeAuthDirectory {
         let acme_resource_api = self.get_acme_resource_url("newNonce").unwrap_or(&self.acme_api);
         let client = Client::new();
         let response = client.get(acme_resource_api).send()?;
+
+        trace!("[ACME-API-RESPONSE-INFO]: \n{:?}", response);
+        //trace!("[ACME-API-RESPONSE-DATA]: \n{}", response_value);
 
         // 请求临时接口凭证
         response.headers().get("Replay-Nonce").ok_or("Replay-Nonce header not found".into())
@@ -445,7 +452,8 @@ impl AcmeAuthDirectory {
         // 响应头...
         let response_headers = response.headers();
 
-        trace!("[请求结果][response.status(): {:?}][response_headers: {:?}][response_data: {:?}]", response.status(), response_headers, response_data);
+        trace!("[ACME-API-RESPONSE-INFO]: \n{:?}", response);
+        trace!("[ACME-API-RESPONSE-DATA]: \n{}", response_data);
 
         Ok((response.status(), response_headers.clone(), response_data))
     }
@@ -490,9 +498,9 @@ impl AcmeAuthDirectory {
         // signature: b64 of hash of signature of {proctected64}.{payload64}
         let mut signer = Signer::new(MessageDigest::sha256(), &private_key)?;
         signer.update(&format!("{}.{}", protected_64, payload_64).into_bytes())?;
-        let signature_64 = b64(&signer.sign_to_vec()?);
-        trace!("[接口签名结果->request()->jws()][signature_64: {:?}]", signature_64);
-        request_jws.insert("signature".to_owned(), to_value(signature_64)?);
+        let signature = b64(&signer.sign_to_vec()?);
+        trace!("[接口签名结果->request()->jws()][signature: {:?}]", signature);
+        request_jws.insert("signature".to_owned(), to_value(signature)?);
 
         Ok(request_jws)
     }
@@ -608,7 +616,6 @@ impl AcmeAccountData {
         let (status, response_headers, response_data) = {
             let mut map = HashMap::new();
             map.insert("certificate".to_owned(), b64(&cert.to_der()?));
-
             self.directory().request(self.private_key(), "revoke-cert", map, None)?
         };
 
@@ -717,7 +724,7 @@ impl AcmeAccountRegistration {
 
         let (status, response_headers, response_data) = self.auth_directory.request(&private_key, "newAccount", map, None)?;
 
-        debug!("[请求账户注册结果][status: {:?}][response_headers: {:?}][response_data: {:?}]", status, response_headers, response_data);
+        debug!("[账户注册结果][response_data: {:?}]", response_data);
 
         match status {
             StatusCode::OK => info!("[账户注册成功] -> StatusCode::OK - User successfully registered!"),
@@ -732,7 +739,7 @@ impl AcmeAccountRegistration {
         Ok(AcmeAccountData {
             auth_directory: self.auth_directory,
             account_url: String::from(account_url.to_str().unwrap()),
-            private_key: private_key,
+            private_key,
         })
     }
 }
@@ -767,12 +774,12 @@ impl AcmeOrderData {
             //let mut resp = client.get(authorization).send()?;
             let mut response = client.get(authorization).send()?;
 
+            trace!("[ACME-API-RESPONSE-INFO]: \n{:?}", response);
+            //trace!("[ACME-API-RESPONSE-DATA]: \n{}", response_data);
+
             // [How do you make a GET request in Rust?](https://stackoverflow.com/questions/43222429/how-do-you-make-a-get-request-in-rust)
             // copy the response body directly to stdout
             //std::io::copy(&mut response, &mut std::io::stdout())?;
-
-            //trace!("[---][response.status(): {:?}]response.headers():\n{:?}", response.status(), response.headers());
-            trace!("[---]response: \n{:?}", response);
 
             // 获取授权数据...
             let acme_order_auth_response: AcmeOrderAuthResponse = response.json()?;
@@ -864,20 +871,23 @@ impl AcmeOrderData {
     /// Creates a new identifier authorization object for domain
     pub fn verify_acme_order_auth_list(&self, acme_name: String, acme_account: &AcmeAccountData, acme_order_auth_list: &Vec<AcmeOrderAuthData>) -> Result<String> {
         info!("[循环验证 ACME 订单授权签名] ->[acme_order_auth_list: {:?}]", acme_order_auth_list);
+        println!("\n");
 
         // 依次发起挑战...
         for auth_acme_order_data in acme_order_auth_list.iter() {
-            info!("[###]循环处理挑战订单: auth_acme_order_data: {:?}", auth_acme_order_data);
+            println!("\n");
+            debug!("[###]循环处理挑战订单: auth_acme_order_data: {:?}", auth_acme_order_data);
+            info!("[###]验证挑战: [auth_challenge.url: {:?}][auth_challenge.auth_dns_token: {:?}]", auth_acme_order_data.auth_challenge.url, auth_acme_order_data.auth_challenge.auth_dns_token);
 
             // 依次读取授权数据
             let auth_identifier = auth_acme_order_data.auth_identifier.clone();
             let auth_challenge = auth_acme_order_data.auth_challenge.clone();
-            info!("[####]验证挑战订单: auth_identifier: {:?}", auth_identifier);
-            info!("[####]验证挑战数据: auth_challenge: {:?}", auth_challenge);
+            debug!("auth_identifier: {:?}", auth_identifier);
+            debug!("auth_challenge: {:?}", auth_challenge);
 
             // 判断是否已经过验证
             if auth_challenge.status == "valid" {
-                warn!("该挑战已为验证状态,取消重复发起挑战验证请求!");
+                info!("该挑战已为验证状态,取消重复发起挑战验证请求!");
                 continue;
             }
 
@@ -928,6 +938,7 @@ impl AcmeOrderData {
                 warn!("[域名证书][ACME][authorization][acme_name: {}][auth_dns_token: {:?}]", acme_name, auth_dns_token);
             }
         }
+        println!("\n");
 
         Ok("挑战列表验证成功!".to_string())
     }
@@ -975,11 +986,12 @@ impl AcmeOrderData {
             from_str(&response_content)?
         };
 
-        debug!("[---][status: {}][response_value: {}]", response.status(), response_value);
+        trace!("[ACME-API-RESPONSE-INFO]: \n{:?}", response);
+        trace!("[ACME-API-RESPONSE-DATA]: \n{}", response_value);
 
         // 判断响应状态码...
         if response.status() != StatusCode::OK {
-            error!("[---][status: {}][response_value: {}]", response.status(), response_value);
+            error!("[status: {}][response_value: {}]", response.status(), response_value);
             return Err(ErrorKind::AcmeServerError(response_value).into());
         }
 
@@ -1005,7 +1017,10 @@ impl AcmeOrderData {
                     from_str(&response_content)?
                 };
 
-                warn!("[challenge validate status: pending][response_value: {}]", response_value);
+                trace!("[ACME-API-RESPONSE-INFO]: \n{:?}", response);
+                trace!("[ACME-API-RESPONSE-DATA]: \n{}", response_value);
+
+                warn!("[challenge validate status: pending]");
             } else if status == "valid" {
                 info!("[循环挑战验证状态] -> [challenge validate status: valid], trying next...");
                 return Ok(());
@@ -1051,6 +1066,12 @@ impl AcmeOrderData {
             .body(to_string(&payload)?)
             .send()?;
 
+        trace!("[ACME-API-RESPONSE-INFO]: \n{:?}", response);
+        //trace!("[ACME-API-RESPONSE-DATA]: \n{}", response_value);
+
+        //trace!("[#][response.status(): {:?}] response.headers():\n{:?}", response.status(), response.headers());
+        //trace!("[#]response: \n{:?}", response);
+
         // 读取响应数据
         //let body = response.text()?;
         //info!("[---]response.body: \n{:?}", body);
@@ -1071,8 +1092,12 @@ impl AcmeOrderData {
         // copy the response body directly to stdout
         //std::io::copy(&mut res, &mut std::io::stdout())?;
 
-        //trace!("[#][response.status(): {:?}] response.headers():\n{:?}", response.status(), response.headers());
-        trace!("[#]response: \n{:?}", response);
+        // 验证是否有签发证书地址
+        if let None = acme_order_response.certificate {
+            panic!("异常订单:未核发证书签发地址!")
+        }
+
+        info!("[#][ACME订单核发的证书签发地址][acme_order_response.certificate: {:?}]", acme_order_response.certificate);
 
         // 复制证书...
         self.certificate_url = acme_order_response.certificate;
@@ -1093,14 +1118,14 @@ impl AcmeOrderData {
 
         let certificate_url = self.certificate_url.clone().unwrap();
 
-        debug!("[请求签发订单域名证书] get certificate [certificate_url: {:?}]...", certificate_url);
+        debug!("[请求签发订单域名证书][certificate_url: {:?}]", certificate_url);
 
         // 发起请求...
         let client = Client::new();
         let mut response = client.get(certificate_url.as_str()).send()?;
 
-        //trace!("[---][response.status(): {:?}][response.headers():\n{:?}]", response.status(), response.headers());
-        trace!("[---]response: \n{:?}", response);
+        trace!("[ACME-API-RESPONSE-INFO]: \n{:?}", response);
+        //trace!("[ACME-API-RESPONSE-DATA]: \n{}", response_value);
 
         // [How do you make a GET request in Rust?](https://stackoverflow.com/questions/43222429/how-do-you-make-a-get-request-in-rust)
         // copy the response body directly to stdout
@@ -1127,7 +1152,7 @@ impl AcmeOrderData {
         //let cert = X509::from_der(&crt_der)?;
         let cert = X509::from_pem(&crt_der)?;
 
-        info!("[域名证书签发成功]Certificate successfully signed........................................................................................");
+        info!("[域名证书签发成功]........................................................................................");
 
         Ok(AcmeSignedCertificate { cert: cert, csr: acme_certificate_signer.csr.unwrap(), private_key: acme_certificate_signer.private_key.unwrap() })
     }
@@ -1184,7 +1209,7 @@ impl AcmeOrderCreator {
 
         let (status, response_headers, response_data) = account.directory().request(&private_key, "newOrder", map, Some(account_url.clone()))?;
 
-        debug!("[创建订单请求结果][status: {:?}][response_headers: {:?}][response_data: {:?}]", status, response_headers, response_data);
+        debug!("[订单创建结果][response_data: {:?}]", response_data);
 
         match status {
             StatusCode::OK => info!("[订单创建成功] -> Order successfully ok"),
