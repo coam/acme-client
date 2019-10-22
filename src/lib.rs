@@ -20,8 +20,6 @@ extern crate serde_json;
 
 pub mod libs;
 
-use libs::v1;
-
 use libs::helper::{gen_key, b64, read_private_key, gen_csr};
 use libs::error::{Result, ErrorKind};
 

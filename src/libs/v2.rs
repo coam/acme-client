@@ -474,7 +474,7 @@ impl AcmeAuthDirectory {
         }
 
         // 接口请求参数...
-        trace!("[接口签名参数->request()->jws()][request_acme_resource_api: {:?}]", request_acme_resource_api);
+        trace!("[接口请求地址->request()->jws()][request_acme_resource_api: {:?}]", request_acme_resource_api);
         trace!("[接口签名参数->request()->jws()][payload: {:?}]", to_value(&payload)?);
         trace!("[接口签名参数->request()->jws()][protected: {:?}]", protected);
 
@@ -488,14 +488,11 @@ impl AcmeAuthDirectory {
         request_jws.insert("payload".to_owned(), to_value(&payload_64)?);
 
         // signature: b64 of hash of signature of {proctected64}.{payload64}
-        request_jws.insert("signature".to_owned(), {
-            let mut signer = Signer::new(MessageDigest::sha256(), &private_key)?;
-            signer.update(&format!("{}.{}", protected_64, payload_64).into_bytes())?;
-            let signature_64 = b64(&signer.sign_to_vec()?);
-            to_value(signature_64)?
-        });
-
-        trace!("[接口签名结果->request()->jws()][request_jws: {:?}]", request_jws);
+        let mut signer = Signer::new(MessageDigest::sha256(), &private_key)?;
+        signer.update(&format!("{}.{}", protected_64, payload_64).into_bytes())?;
+        let signature_64 = b64(&signer.sign_to_vec()?);
+        trace!("[接口签名结果->request()->jws()][signature_64: {:?}]", signature_64);
+        request_jws.insert("signature".to_owned(), to_value(signature_64)?);
 
         Ok(request_jws)
     }
