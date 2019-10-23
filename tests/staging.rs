@@ -9,7 +9,7 @@ extern crate pretty_env_logger;
 
 use acme_client::libs;
 
-use libs::helper::{gen_key, b64, read_pkey, gen_csr};
+use libs::helper::{gen_key, b64, read_private_key, gen_csr};
 use libs::error::{Result, ErrorKind};
 
 // 测试模块...
@@ -33,8 +33,8 @@ fn test_b64() {
 }
 
 #[test]
-fn test_read_pkey() {
-    assert!(read_pkey("tests/data/user.key").is_ok());
+fn test_read_private_key() {
+    assert!(read_private_key("tests/data/user.key").is_ok());
 }
 
 #[test]
@@ -46,18 +46,18 @@ fn test_gen_csr() {
 
 #[test]
 fn test_v2_directory() {
-    //let directory = libs::v2::Directory::lets_encrypt().unwrap();
-    //println!("[###]Directory.lets_encrypt():[directory.url:{:?}][directory.directory:{:?}]", directory.url,directory.directory);
+    //let directory = libs::v2::AcmeAuthDirectory::lets_encrypt().unwrap();
+    //println!("[###]AcmeAuthDirectory.lets_encrypt():[directory.url:{:?}][directory.directory:{:?}]", directory.url,directory.directory);
 
-    assert!(libs::v2::Directory::lets_encrypt().is_ok());
+    assert!(libs::v2::AcmeAuthDirectory::lets_encrypt().is_ok());
 
-    let dir = libs::v2::Directory::from_url(LETS_ENCRYPT_V2_STAGING_DIRECTORY_URL).unwrap();
-    println!("[###]Directory.newAccount:{:?}", dir.url_for("newAccount").unwrap());
+    let dir = libs::v2::AcmeAuthDirectory::from_url(LETS_ENCRYPT_V2_STAGING_DIRECTORY_URL).unwrap();
+    println!("[###]AcmeAuthDirectory.newAccount:{:?}", dir.get_acme_resource_url("newAccount").unwrap());
 
-    assert!(dir.url_for("newAccount").is_some());
-    assert!(dir.url_for("newNonce").is_some());
-    assert!(dir.url_for("newOrder").is_some());
-    assert!(dir.url_for("revokeCert").is_some());
+    assert!(dir.get_acme_resource_url("newAccount").is_some());
+    assert!(dir.get_acme_resource_url("newNonce").is_some());
+    assert!(dir.get_acme_resource_url("newOrder").is_some());
+    assert!(dir.get_acme_resource_url("revokeCert").is_some());
 
     //assert!(!dir.get_nonce().unwrap().is_empty());
 
@@ -69,10 +69,10 @@ fn test_v2_directory() {
 #[test]
 #[ignore]
 fn test_v2_account_registration() {
-    let dir = libs::v2::Directory::from_url(LETS_ENCRYPT_V2_STAGING_DIRECTORY_URL).unwrap();
+    let dir = libs::v2::AcmeAuthDirectory::from_url(LETS_ENCRYPT_V2_STAGING_DIRECTORY_URL).unwrap();
     assert!(dir.account_registration()
         .email("example@example.org")
-        .pkey_from_file("tests/data/user.key")
+        .private_key_from_file("tests/data/user.key")
         .unwrap()
         .register()
         .is_ok());

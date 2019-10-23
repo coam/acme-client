@@ -285,7 +285,7 @@ use reqwest::{Client, StatusCode};
 use reqwest::header::HeaderMap;
 
 // serde
-use serde_json::{Value, from_str, to_string, to_value};
+use serde_json::{Value, from_str, to_string, to_value, from_value};
 use serde::Serialize;
 
 // dependence
@@ -312,6 +312,30 @@ pub struct AcmeAuthDirectory {
     auth_directory: Value,
 }
 
+// 打印请求日志数据...
+fn load_response(response: &mut reqwest::Response) -> Result<String> {
+
+    // 读取到字符串
+    let mut content = String::new();
+    response.read_to_string(&mut content)?;
+
+    trace!("[ACME-API-RESPONSE-INFO]: \n{:?}", response);
+    trace!("[ACME-API-RESPONSE-CONTENT]: \n{}", content);
+
+    // 转化成 Value ...
+    //let value: Value = from_str(&content)?;
+    //let value: Value = {
+    //    if !content.is_empty() {
+    //        from_str(&content)?
+    //    } else {
+    //        to_value(true)?
+    //    }
+    //};
+    //trace!("[ACME-API-RESPONSE-DATA]: \n{}", value);
+
+    Ok(content)
+}
+
 impl AcmeAuthDirectory {
     /// Creates a AcmeAuthDirectory from
     /// [`LETS_ENCRYPT_DIRECTORY_URL`](constant.LETS_ENCRYPT_DIRECTORY_URL.html).
@@ -332,30 +356,19 @@ impl AcmeAuthDirectory {
     /// # fn main () { try_main().unwrap(); }
     /// ```
     pub fn from_url(url: &str) -> Result<AcmeAuthDirectory> {
-        // 设置日志等级...
-        // Error -> Warn -> Info -> Debug -> Trace
-        // RUST_LOG=info cargo run
-        //env::set_var("RUST_LOG", "run_s");
-        //env::set_var("RUST_LOG", "coam_s=info");
-
-        //env_logger::init();
-        //pretty_env_logger::init();
-
         info!("[签发域名证书环境][ACME][from_url()][LETS_ENCRYPT_DIRECTORY_URL][url: {:?}]", url);
 
+        // 请求ACME服务 - 获取 Directory 接口...
         let client = Client::new();
         let mut response = client.get(url).send()?;
 
-        trace!("[ACME-API-RESPONSE-INFO]: \n{:?}", response);
-        //trace!("[ACME-API-RESPONSE-DATA]: \n{}", response_value);
-
-        let mut content = String::new();
-        response.read_to_string(&mut content)?;
+        // 处理 ACME 响应数据...
+        let response_content = load_response(&mut response)?;
 
         // 构造 AcmeDirectory
         Ok(AcmeAuthDirectory {
             acme_api: url.to_owned(),
-            auth_directory: from_str(&content)?,
+            auth_directory: from_str(&response_content)?,
         })
     }
 
@@ -396,16 +409,26 @@ impl AcmeAuthDirectory {
     /// it will try to get nonce header from directory url.
     pub fn get_nonce(&self) -> Result<String> {
         let acme_resource_api = self.get_acme_resource_url("newNonce").unwrap_or(&self.acme_api);
-        let client = Client::new();
-        let response = client.get(acme_resource_api).send()?;
 
-        trace!("[ACME-API-RESPONSE-INFO]: \n{:?}", response);
-        //trace!("[ACME-API-RESPONSE-DATA]: \n{}", response_value);
+        trace!("[获取临时授权凭证->get_nonce()][acme_resource_api: {}]", acme_resource_api);
+
+        // 请求ACME服务 - 获取接口临时调用凭证...
+        let client = Client::new();
+        let mut response = client.get(acme_resource_api).send()?;
+
+        let response_headers = response.headers();
 
         // 请求临时接口凭证
-        response.headers().get("Replay-Nonce").ok_or("Replay-Nonce header not found".into())
+        let nonce = response_headers.get("Replay-Nonce").ok_or("Replay-Nonce header not found".into())
             .and_then(|nonce| nonce.to_str().map_err(|_| "Nonce header value contains invalid characters".into()))
-            .map(|nonce| nonce.to_string())
+            .map(|nonce| nonce.to_string());
+
+        // 处理 ACME 响应数据...
+        let response_content = load_response(&mut response)?;
+
+        trace!("[获取请求凭证->get_nonce()][nonce: {:?}]", nonce);
+
+        nonce
     }
 
     /// Makes a new post request to directory, signs payload with private_key.
@@ -415,7 +438,7 @@ impl AcmeAuthDirectory {
         // 格式转换
         let payload_value = to_value(&payload)?;
 
-        trace!("[ACME接口请求参数->request()][resource: {:?}][kid: {:?}][payload_value: {:?}]", resource, kid, payload_value);
+        trace!("[ACME接口请求参数->request()][resource: {}][kid: {:?}][payload_value: {}]", resource, kid, payload_value);
 
         // 获取请求的 acme_resource_api
         let acme_resource_api = self.get_acme_resource_url(resource).ok_or(format!("URL for resource: {} not found", resource))?;
@@ -423,14 +446,14 @@ impl AcmeAuthDirectory {
         // 获取 jws
         let api_payload_jws = self.jws(acme_resource_api, private_key, payload_value, kid)?;
 
-        trace!("[发起请求->request()][acme_resource_api: {:?}][api_payload_jws: {:?}]", acme_resource_api, &api_payload_jws);
+        trace!("[发起请求->request()][acme_resource_api: {}][api_payload_jws: {:?}]", acme_resource_api, &api_payload_jws);
 
         // 添加 [application/jose+json] 请求头
         let mut headers = HeaderMap::new();
         //headers.set(ContentType::json());
         headers.insert(reqwest::header::CONTENT_TYPE, "application/jose+json".parse().unwrap());
 
-        // 请求客户端...
+        // 请求ACME服务 - 请求接口...
         let client = Client::new();
         let mut response = client.post(acme_resource_api)
             .headers(headers)
@@ -438,10 +461,11 @@ impl AcmeAuthDirectory {
             .body(to_string(&api_payload_jws)?)
             .send()?;
 
+        // 处理 ACME 响应数据...
+        let response_content = load_response(&mut response)?;
+
         // ACME 接口请求响应数据
         let response_data = {
-            let mut response_content = String::new();
-            response.read_to_string(&mut response_content)?;
             if !response_content.is_empty() {
                 from_str(&response_content)?
             } else {
@@ -452,9 +476,6 @@ impl AcmeAuthDirectory {
         // 响应头...
         let response_headers = response.headers();
 
-        trace!("[ACME-API-RESPONSE-INFO]: \n{:?}", response);
-        trace!("[ACME-API-RESPONSE-DATA]: \n{}", response_data);
-
         Ok((response.status(), response_headers.clone(), response_data))
     }
 
@@ -462,8 +483,6 @@ impl AcmeAuthDirectory {
     pub fn jws<T: Serialize>(&self, request_acme_resource_api: &str, private_key: &PKey<openssl::pkey::Private>, payload: T, kid: Option<String>) -> Result<HashMap<String, Value>> {
         // 获取临时授权凭证
         let nonce = self.get_nonce()?;
-
-        trace!("[获取请求凭证->get_nonce()][nonce: {:?}]", nonce);
 
         // 组装接口请求参数验证签名...
         let mut request_jws: HashMap<String, Value> = HashMap::new();
@@ -482,8 +501,8 @@ impl AcmeAuthDirectory {
         }
 
         // 接口请求参数...
-        trace!("[接口请求地址->request()->jws()][request_acme_resource_api: {:?}]", request_acme_resource_api);
-        trace!("[接口签名参数->request()->jws()][payload: {:?}]", to_value(&payload)?);
+        trace!("[接口请求地址->request()->jws()][request_acme_resource_api: {}]", request_acme_resource_api);
+        trace!("[接口签名参数->request()->jws()][payload: {}]", to_value(&payload)?);
         trace!("[接口签名参数->request()->jws()][protected: {:?}]", protected);
 
         // protected: base64 of protected + nonce
@@ -499,7 +518,9 @@ impl AcmeAuthDirectory {
         let mut signer = Signer::new(MessageDigest::sha256(), &private_key)?;
         signer.update(&format!("{}.{}", protected_64, payload_64).into_bytes())?;
         let signature = b64(&signer.sign_to_vec()?);
-        trace!("[接口签名结果->request()->jws()][signature: {:?}]", signature);
+
+        trace!("[接口签名结果->request()->jws()][signature: {}]", signature);
+
         request_jws.insert("signature".to_owned(), to_value(signature)?);
 
         Ok(request_jws)
@@ -724,7 +745,7 @@ impl AcmeAccountRegistration {
 
         let (status, response_headers, response_data) = self.auth_directory.request(&private_key, "newAccount", map, None)?;
 
-        debug!("[账户注册结果][response_data: {:?}]", response_data);
+        debug!("[账户注册结果][response_data: {}]", response_data);
 
         match status {
             StatusCode::OK => info!("[账户注册成功] -> StatusCode::OK - User successfully registered!"),
@@ -769,20 +790,20 @@ impl AcmeOrderData {
             println!("\n");
             info!("[获取 ACME 订单验证挑战方案] -> [authorization: {:?}]", authorization);
 
-            // 发起授权验证...
+            // 请求ACME服务 - 发起授权验证...
             let client = Client::new();
-            //let mut resp = client.get(authorization).send()?;
             let mut response = client.get(authorization).send()?;
 
-            trace!("[ACME-API-RESPONSE-INFO]: \n{:?}", response);
-            //trace!("[ACME-API-RESPONSE-DATA]: \n{}", response_data);
+            // 处理 ACME 响应数据...
+            let response_content = load_response(&mut response)?;
 
             // [How do you make a GET request in Rust?](https://stackoverflow.com/questions/43222429/how-do-you-make-a-get-request-in-rust)
             // copy the response body directly to stdout
             //std::io::copy(&mut response, &mut std::io::stdout())?;
 
             // 获取授权数据...
-            let acme_order_auth_response: AcmeOrderAuthResponse = response.json()?;
+            //let acme_order_auth_response: AcmeOrderAuthResponse = response.json()?;
+            let acme_order_auth_response: AcmeOrderAuthResponse = from_str(&response_content)?;
             info!("[账户订单域名授权验证挑战方案]response.acme_order_auth_response: \n{:?}", acme_order_auth_response);
 
             // 依次读取授权挑战数据
@@ -819,7 +840,7 @@ impl AcmeOrderData {
         // 循环授权挑战验证列表...
         for auth_info in &self.auth_list {
             println!("\n");
-            info!("[为 ACME 订单配置挑战签名] -> [auth_info: {:?}]", auth_info);
+            info!("[为 ACME 订单配置挑战签名] -> [auth_name: {}][auth_info: {:?}]", auth_info.identifier.value, auth_info);
 
             // 依次读取授权数据
             let auth_identifier = auth_info.identifier.clone();
@@ -854,10 +875,10 @@ impl AcmeOrderData {
             auth_challenge.auth_dns_token = Some(auth_dns_token);
 
             // 授权挑战数据...
-            let account_auth_data = AcmeOrderAuthData { auth_identifier, auth_challenge };
+            let acme_order_auth_data = AcmeOrderAuthData { auth_identifier, auth_challenge };
 
             // 推入授权列表...
-            acme_order_auth_list.push(account_auth_data);
+            acme_order_auth_list.push(acme_order_auth_data);
         }
 
         println!("\n");
@@ -923,6 +944,9 @@ impl AcmeOrderData {
                 if let Ok(()) = dns_challenge_results {
                     warn!("[验证完成,跳出循环验证请求][acme_name: {}][try_ts: {}]", acme_name, try_ts);
                     break 'outer;
+                } else {
+                    //error!("[验证超时失败][acme_name: {}][try_ts: {}]", acme_name, try_ts);
+                    //return Err(ErrorKind::AcmeServerError(from_str("验证失败中断!")?).into());
                 }
 
                 // 延时等待...
@@ -947,11 +971,9 @@ impl AcmeOrderData {
     pub fn validate(&self, acme_account: &AcmeAccountData, challenge: AcmeOrderAuthChallenge) -> Result<()> {
         info!("[挑战验证] -> Triggering {} validation", challenge.types);
 
-        // 获取请求的url
-        //let url = challenge.get_acme_resource_url(resource).ok_or(format!("URL for resource: {} not found", resource))?;
-
         // 获取挑战签名...
         let challenge_token = challenge.signature().unwrap();
+
         debug!("validate info: [challenge_token: {:?}]", challenge_token);
 
         // 验证参数...
@@ -971,23 +993,19 @@ impl AcmeOrderData {
         //headers.set(ContentType::json());
         headers.insert(reqwest::header::CONTENT_TYPE, "application/jose+json".parse().unwrap());
 
-        // 发起请求...
+        // 请求ACME服务 - ...
         let client = Client::new();
-        //let mut response = client.post(&challenge.url).body(&payload[..]).send()?;
         let mut response = client.post(&challenge.url)
             .headers(headers)
+            //.body(&payload[..])
             .body(to_string(&payload)?)
             .send()?;
 
-        // 获取挑战验证请求响应数据...
-        let mut response_value: Value = {
-            let mut response_content = String::new();
-            response.read_to_string(&mut response_content)?;
-            from_str(&response_content)?
-        };
+        // 处理 ACME 响应数据...
+        let response_content = load_response(&mut response)?;
 
-        trace!("[ACME-API-RESPONSE-INFO]: \n{:?}", response);
-        trace!("[ACME-API-RESPONSE-DATA]: \n{}", response_value);
+        // 获取挑战验证请求响应数据...
+        let mut response_value: Value = from_str(&response_content)?;
 
         // 判断响应状态码...
         if response.status() != StatusCode::OK {
@@ -995,7 +1013,12 @@ impl AcmeOrderData {
             return Err(ErrorKind::AcmeServerError(response_value).into());
         }
 
+        // 延迟等待时间...
+        let mut wait_ts = 5;
+        std::thread::sleep(std::time::Duration::from_secs(wait_ts));
         loop {
+            debug!("[LOOP][循环验证][wait_ts: {}]", wait_ts);
+
             // 验证挑战状态
             let status = response_value.as_object()
                 .and_then(|o| o.get("status"))
@@ -1009,28 +1032,28 @@ impl AcmeOrderData {
             if status == "pending" {
                 info!("[循环挑战验证状态] -> [challenge validate status: pending], trying again...");
 
-                // 请求结果
+                // 请求ACME服务 - ...
                 let mut response = client.get(&challenge.url).send()?;
-                response_value = {
-                    let mut response_content = String::new();
-                    response.read_to_string(&mut response_content)?;
-                    from_str(&response_content)?
-                };
 
-                trace!("[ACME-API-RESPONSE-INFO]: \n{:?}", response);
-                trace!("[ACME-API-RESPONSE-DATA]: \n{}", response_value);
+                // 处理 ACME 响应数据...
+                let response_content = load_response(&mut response)?;
+
+                response_value = from_str(&response_content)?;
 
                 warn!("[challenge validate status: pending]");
             } else if status == "valid" {
                 info!("[循环挑战验证状态] -> [challenge validate status: valid], trying next...");
                 return Ok(());
             } else if status == "invalid" {
-                error!("[循环挑战验证状态] -> [challenge validate status: invalid], trying ended...");
+                error!("[循环挑战验证状态] -> [challenge validate status: invalid], trying ended!");
                 return Err(ErrorKind::AcmeServerError(response_value).into());
             }
 
+            // 累加时间
+            wait_ts += 10;
+
             // 循环等待验证...
-            std::thread::sleep(std::time::Duration::from_secs(2));
+            std::thread::sleep(std::time::Duration::from_secs(wait_ts));
         }
     }
 
@@ -1056,7 +1079,7 @@ impl AcmeOrderData {
         //headers.set(ContentType::json());
         headers.insert(reqwest::header::CONTENT_TYPE, "application/jose+json".parse().unwrap());
 
-        // 发起请求...
+        // 请求ACME服务 - 完结确认订单...
         let client = Client::new();
         //let jws = acme_certificate_signer.account.directory().jws(finalize_url, acme_certificate_signer.account.private_key(), map, Some(acme_certificate_signer.account.account_url.clone()))?
         let mut response = client.post(finalize_url)
@@ -1066,8 +1089,8 @@ impl AcmeOrderData {
             .body(to_string(&payload)?)
             .send()?;
 
-        trace!("[ACME-API-RESPONSE-INFO]: \n{:?}", response);
-        //trace!("[ACME-API-RESPONSE-DATA]: \n{}", response_value);
+        // 处理 ACME 响应数据...
+        let response_content = load_response(&mut response)?;
 
         //trace!("[#][response.status(): {:?}] response.headers():\n{:?}", response.status(), response.headers());
         //trace!("[#]response: \n{:?}", response);
@@ -1080,8 +1103,8 @@ impl AcmeOrderData {
         // copy the response body directly to stdout
         //std::io::copy(&mut res, &mut std::io::stdout())?;
 
-        let acme_order_response: AcmeOrderResponse = response.json()?;
-        trace!("[#]response.acme_order_response: \n{:?}", acme_order_response);
+        //let acme_order_response: AcmeOrderResponse = response.json()?;
+        let acme_order_response: AcmeOrderResponse = from_str(&response_content)?;
 
         // 判断是否经过验证...
         if acme_order_response.status != "valid" {
@@ -1120,12 +1143,9 @@ impl AcmeOrderData {
 
         debug!("[请求签发订单域名证书][certificate_url: {:?}]", certificate_url);
 
-        // 发起请求...
+        // 请求ACME服务 - 获取签发证书...
         let client = Client::new();
         let mut response = client.get(certificate_url.as_str()).send()?;
-
-        trace!("[ACME-API-RESPONSE-INFO]: \n{:?}", response);
-        //trace!("[ACME-API-RESPONSE-DATA]: \n{}", response_value);
 
         // [How do you make a GET request in Rust?](https://stackoverflow.com/questions/43222429/how-do-you-make-a-get-request-in-rust)
         // copy the response body directly to stdout
@@ -1133,12 +1153,13 @@ impl AcmeOrderData {
 
         //if response.status() != StatusCode::CREATED {
         if response.status() != StatusCode::OK {
+
+            // 处理 ACME 响应数据...
+            let response_content = load_response(&mut response)?;
+
             // 获取响应的数据
-            let response_value = {
-                let mut response_content = String::new();
-                response.read_to_string(&mut response_content)?;
-                from_str(&response_content)?
-            };
+            let response_value = from_str(&response_content)?;
+
             return Err(ErrorKind::AcmeServerError(response_value).into());
         }
 
@@ -1194,22 +1215,22 @@ impl AcmeOrderCreator {
     ///
     /// A PKey will be generated if it doesn't exists.
     pub fn create(self, account: &AcmeAccountData) -> Result<AcmeOrderData> {
-        info!("[执行创建订单流程]Creating order");
+        info!("[执行创建订单流程]Creating order...");
 
-        let mut map = HashMap::new();
+        let mut order_params = HashMap::new();
 
         // 创建订单域名...
-        map.insert("identifiers".to_owned(), &self.acme_order_identifiers);
+        order_params.insert("identifiers".to_owned(), &self.acme_order_identifiers);
 
-        info!("[发起创建订单请求参数][resources: createOrder][map: {:?}]", map);
+        info!("[创建订单请求参数][resources: createOrder][order_params: {:?}]", order_params);
 
         // ACME 账户配置...
         let private_key = &account.private_key;
         let account_url = &account.account_url;
 
-        let (status, response_headers, response_data) = account.directory().request(&private_key, "newOrder", map, Some(account_url.clone()))?;
+        let (status, response_headers, response_data) = account.directory().request(&private_key, "newOrder", order_params, Some(account_url.clone()))?;
 
-        debug!("[订单创建结果][response_data: {:?}]", response_data);
+        debug!("[订单创建结果][response_data: {}]", response_data);
 
         match status {
             StatusCode::OK => info!("[订单创建成功] -> Order successfully ok"),
@@ -1382,10 +1403,9 @@ impl AcmeSignedCertificate {
     /// [`LETS_ENCRYPT_INTERMEDIATE_CERT_URL`](constant.LETS_ENCRYPT_INTERMEDIATE_CERT_URL.html).
     /// will be used if url is None.
     fn get_intermediate_certificate(&self, url: Option<&str>) -> Result<X509> {
+        // 请求ACME服务 - 获取中间证书链...
         let client = Client::new();
-        let mut response = client
-            .get(url.unwrap_or(LETS_ENCRYPT_INTERMEDIATE_CERT_URL))
-            .send()?;
+        let mut response = client.get(url.unwrap_or(LETS_ENCRYPT_INTERMEDIATE_CERT_URL)).send()?;
         let mut content = Vec::new();
         response.read_to_end(&mut content)?;
         Ok(X509::from_pem(&content)?)

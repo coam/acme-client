@@ -1,5 +1,5 @@
 use testor::acme_client::libs;
-use testor::acme_client::libs::helper::{gen_key, b64, read_pkey, gen_csr};
+use testor::acme_client::libs::helper::{gen_key, b64, read_private_key, gen_csr};
 use testor::acme_client::libs::error::{Result, ErrorKind};
 
 pub fn test_acc(url: &str) -> Result<libs::v1::Account> {

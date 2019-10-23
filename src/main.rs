@@ -406,7 +406,7 @@ fn gen_key() -> Result<()> {
 
 
 fn gen_csr(matches: &ArgMatches) -> Result<()> {
-    let pkey = acme_client::libs::helper::read_pkey(matches.value_of("DOMAIN_KEY")
+    let pkey = acme_client::libs::helper::read_private_key(matches.value_of("DOMAIN_KEY")
         .ok_or("You need to provide private domain key with --key option")?)?;
     let names: Vec<&str> = matches.values_of("DOMAIN")
         .ok_or("You need to provide at least one domain name")?
