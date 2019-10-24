@@ -518,11 +518,9 @@ impl Directory {
     pub fn jwk(&self, pkey: &PKey<openssl::pkey::Private>) -> Result<Value> {
         let rsa = pkey.rsa()?;
         let mut jwk: HashMap<String, String> = HashMap::new();
-        jwk.insert("e".to_owned(),
-                   b64(&rsa.e().to_vec()));
+        jwk.insert("e".to_owned(), b64(&rsa.e().to_vec()));
         jwk.insert("kty".to_owned(), "RSA".to_owned());
-        jwk.insert("n".to_owned(),
-                   b64(&rsa.n().to_vec()));
+        jwk.insert("n".to_owned(), b64(&rsa.n().to_vec()));
         Ok(to_value(jwk)?)
     }
 }

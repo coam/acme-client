@@ -18,6 +18,9 @@ extern crate serde_derive;
 extern crate serde;
 extern crate serde_json;
 
+// indexmap
+extern crate indexmap;
+
 pub mod libs;
 
 use libs::helper::{gen_key, b64, read_private_key, gen_csr};
