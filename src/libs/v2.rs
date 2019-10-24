@@ -101,10 +101,10 @@
 //!
 //! Before sending a certificate signing request to an ACME server, you need to identify ownership
 //! of domain names you want to sign a certificate for. To do that you need to create an
-//! AcmeOrderAuthChallengeList object for a domain name and fulfill at least one challenge (http or dns for
+//! AcmeOrderAuthorizationChallengeList object for a domain name and fulfill at least one challenge (http or dns for
 //! Let's Encrypt).
 //!
-//! To create an AcmeOrderAuthChallengeList object for a domain:
+//! To create an AcmeOrderAuthorizationChallengeList object for a domain:
 //!
 //! ```rust,no_run
 //! # use acme_client::libs::error::Result;
@@ -120,8 +120,8 @@
 //! # fn main () { try_main().unwrap(); }
 //! ```
 //!
-//! [AcmeOrderAuthChallengeList](struct.AcmeOrderAuthChallengeList.html) object will contain challenges created by
-//! ACME server. You can create as many AcmeOrderAuthChallengeList object as you want to verify ownership
+//! [AcmeOrderAuthorizationChallengeList](struct.AcmeOrderAuthorizationChallengeList.html) object will contain challenges created by
+//! ACME server. You can create as many AcmeOrderAuthorizationChallengeList object as you want to verify ownership
 //! of the domain names. For example if you want to sign a certificate for
 //! `example.com` and `example.org`:
 //!
@@ -153,7 +153,7 @@
 //! on an HTTP server that responds for that domain name.
 //!
 //! `acme-client` has
-//! [`save_auth_key_token`](struct.AcmeOrderAuthChallenge.html#method.save_auth_key_token) method
+//! [`save_auth_key_token`](struct.AcmeOrderAuthorizationChallenge.html#method.save_auth_key_token) method
 //! to save vaditation file to a public auth_directory. This auth_directory must be accessible to outside
 //! world.
 //!
@@ -188,7 +188,7 @@
 //! value under a specific validation domain name.
 //!
 //! `acme-client` can generated this value with
-//! [`signature`](struct.AcmeOrderAuthChallenge.html#method.signature) method.
+//! [`signature`](struct.AcmeOrderAuthorizationChallenge.html#method.signature) method.
 //!
 //! The user constructs the validation domain name by prepending the label "_acme-challenge"
 //! to the domain name being validated, then provisions a TXT record with the digest value under
@@ -289,7 +289,7 @@ use serde_json::{json, Value, from_str, to_string, to_value, from_value};
 use serde::Serialize;
 
 // indexmap
-use indexmap::IndexMap;
+//use indexmap::IndexMap;
 
 // dependence
 use libs::helper::{gen_key, b64, read_private_key, gen_csr};
@@ -535,12 +535,14 @@ impl AcmeAuthDirectory {
         // RSA...
         let rsa = private_key.rsa()?;
 
+        // IndexMap 无法序列化...
         //let mut jwk: IndexMap<String, String> = IndexMap::new();
         //jwk.insert("e".to_owned(), b64(&rsa.e().to_vec()));
         //jwk.insert("kty".to_owned(), "RSA".to_owned());
         //jwk.insert("n".to_owned(), b64(&rsa.n().to_vec()));
         //info!("[JWK][IndexMap][jwk: {:?}][jwk.keys(): {:?}]", jwk, jwk.keys());
 
+        // HashMap 随机乱序...
         //let mut jwk: HashMap<String, String> = HashMap::new();
         //jwk.insert("e".to_owned(), b64(&rsa.e().to_vec()));
         //jwk.insert("kty".to_owned(), "RSA".to_owned());
@@ -550,7 +552,7 @@ impl AcmeAuthDirectory {
         //let jwk = to_value(jwk)?;
         //info!("[JWK]-[jwk: {:?}]", jwk);
 
-        // The type of `john` is `serde_json::Value`
+        // 固定 jwk 数据结构...
         let jwk = json!({
             "e": b64(&rsa.e().to_vec()),
             "kty": "RSA".to_owned(),
@@ -579,79 +581,6 @@ pub struct AcmeOrderAuthData {
     pub order_auth_identifier: AcmeOrderIdentifier,
     // DNS-01 授权验证挑战
     pub order_auth_challenge: AcmeOrderAuthorizationChallenge,
-}
-
-// AcmeOrderAuthChallenge 挑战...
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct AcmeOrderAuthorizationChallenge {
-    //r#type: String,
-    #[serde(rename = "type")]
-    pub types: String,
-    pub status: String,
-    pub url: String,
-    pub token: String,
-    pub wildcard: Option<bool>,
-    #[serde(rename = "validationRecord")]
-    pub validation_record: Option<Vec<AcmeOrderAuthorizationChallengeValidationRecord>>,
-    // 授权签名...
-    pub auth_key_token: Option<String>,
-    pub auth_dns_token: Option<String>,
-}
-
-// AcmeOrderAuthChallenge 挑战...
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct AcmeOrderAuthorizationChallengeValidationRecord {
-    hostname: String,
-}
-
-/// A verification challenge.
-pub struct AcmeOrderAuthChallenge {
-    /// Type of verification challenge. Usually `http-01`, `dns-01` for letsencrypt.
-    pub types: String,
-    /// URL to trigger challenge.
-    pub url: String,
-    /// AcmeOrderAuthChallenge token.
-    pub token: String,
-    /// Key authorization.
-    pub auth_key_token: String,
-}
-
-impl AcmeOrderAuthChallenge {
-    /// Saves key authorization into `{path}/.well-known/acme-challenge/{token}` for http challenge.
-    pub fn save_auth_key_token<P: AsRef<Path>>(&self, path: P) -> Result<()> {
-        use std::fs::create_dir_all;
-        let path = path.as_ref().join(".well-known").join("acme-challenge");
-        info!("Saving validation token into: {:?}", &path);
-        create_dir_all(&path)?;
-
-        let mut file = File::create(path.join(&self.token))?;
-        writeln!(&mut file, "{}", self.auth_key_token)?;
-
-        Ok(())
-    }
-
-    /// Gets DNS validation signature.
-    ///
-    /// This value is used for verification of domain over DNS. Signature must be saved
-    /// as a TXT record for `_acme_challenge.example.com`.
-    pub fn signature(&self) -> Result<String> {
-        Ok(b64(&hash(MessageDigest::sha256(), &self.auth_key_token.clone().into_bytes())?))
-    }
-
-    /// Returns challenge type, usually `http-01` or `dns-01` for Let's Encrypt.
-    pub fn types(&self) -> &str {
-        &self.types
-    }
-
-    /// Returns challenge token
-    pub fn token(&self) -> &str {
-        &self.token
-    }
-
-    /// Returns auth_key_token
-    pub fn auth_key_token(&self) -> &str {
-        &self.auth_key_token
-    }
 }
 
 /// Registered account object.
@@ -935,13 +864,9 @@ impl AcmeOrderData {
 
             // 获取挑战参数...
             let token = order_auth_challenge.token.clone();
-            let types = order_auth_challenge.types.clone();
-            let url = order_auth_challenge.url.clone();
 
             // 比对测试数据...
             //let token = String::from("lKV1pdAuaKJRYcpp-0WzSJsl2IZvomeOfkqrshlkamo");
-            //let types = String::from("dns-01");
-            //let url = String::from("https://acme-staging-v02.api.letsencrypt.org/acme/chall-v3/16314770/A4-45g");
 
             // 获取 jwk ...
             let jwk = &acme_account.directory().jwk(acme_account.private_key())?;
@@ -953,16 +878,20 @@ impl AcmeOrderData {
             //info!("[JWK][jwk: {:?}][auth_key_thumbprint: {:?}]", jwk, auth_key_thumbprint);
 
             // 授权 Token ...
-            let auth_key_token = format!("{}.{}", order_auth_challenge.token, auth_key_thumbprint);
+            let auth_key_token = format!("{}.{}", token, auth_key_thumbprint);
+
+            info!("[DNS签名][auth_key_thumbprint: {:?}][auth_key_token: {:?}]", auth_key_thumbprint, auth_key_token);
+
+            // 配置授权 Key ...
+            order_auth_challenge.auth_key_token = Some(auth_key_token);
 
             // 获取挑战签名...
-            let acme_order_auth_challenge = AcmeOrderAuthChallenge { types, url, token, auth_key_token: auth_key_token.clone() };
-            let auth_dns_token = acme_order_auth_challenge.signature().unwrap();
-            info!("[DNS挑战签名][auth_dns_token: {:?}][auth_key_thumbprint: {:?}][auth_key_token: {:?}]", auth_dns_token, auth_key_thumbprint, auth_key_token);
+            let auth_dns_token = order_auth_challenge.signature().unwrap();
 
             // 保存授权...
-            order_auth_challenge.auth_key_token = Some(auth_key_token);
-            order_auth_challenge.auth_dns_token = Some(auth_dns_token);
+            order_auth_challenge.auth_dns_token = Some(auth_dns_token.clone());
+
+            info!("[DNS挑战签名][auth_dns_token: {:?}]", auth_dns_token);
 
             // 授权挑战数据...
             let acme_order_auth_data = AcmeOrderAuthData { order_auth_identifier, order_auth_challenge };
@@ -1019,16 +948,8 @@ impl AcmeOrderData {
             //
             //    info!("[循环延时验证,请耐心等待...][acme_name: {}] 尝试延时验证批次[try_ts: {}]", acme_name, try_ts);
 
-            // 获取挑战签名...
-            let acme_order_auth_challenge = AcmeOrderAuthChallenge {
-                types: types.clone(),
-                url: url.clone(),
-                token: token.clone(),
-                auth_key_token: auth_key_token.clone(),
-            };
-
             // 发起授权验证...
-            let dns_challenge_results = self.validate(acme_account, acme_order_auth_challenge);
+            let dns_challenge_results = self.validate(acme_account, order_auth_challenge);
 
             // 如果验证成功,则跳出验证请求...
             if let Ok(()) = dns_challenge_results {
@@ -1060,7 +981,7 @@ impl AcmeOrderData {
     }
 
     /// Triggers validation.
-    pub fn validate(&self, acme_account: &AcmeAccountData, challenge: AcmeOrderAuthChallenge) -> Result<()> {
+    pub fn validate(&self, acme_account: &AcmeAccountData, challenge: AcmeOrderAuthorizationChallenge) -> Result<()> {
         info!("[挑战验证] -> Triggering {} validation", challenge.types);
 
         // 获取挑战签名...
@@ -1223,9 +1144,10 @@ impl AcmeOrderData {
             panic!("未获取证书文件地址-无法签发证书!");
         }
 
+        // 获取证书签发地址
         let certificate_url = self.certificate_url.clone().unwrap();
 
-        debug!("[请求签发订单域名证书][certificate_url: {:?}]", certificate_url);
+        debug!("[获取已签发订单域名证书][certificate_url: {:?}]", certificate_url);
 
         // 请求ACME服务 - 获取签发证书...
         let client = Client::new();
@@ -1235,31 +1157,27 @@ impl AcmeOrderData {
         // copy the response body directly to stdout
         //std::io::copy(&mut response, &mut std::io::stdout())?;
 
-        //if response.status() != StatusCode::CREATED {
         if response.status() != StatusCode::OK {
-
             // 处理 ACME 响应数据...
             let response_content = load_response(&mut response)?;
-
-            // 获取响应的数据
-            let response_value = from_str(&response_content)?;
-
-            return Err(ErrorKind::AcmeServerError(response_value).into());
+            return Err(ErrorKind::AcmeServerError(from_str(&response_content)?).into());
         }
 
         // 创建证书...
         let mut crt_der = Vec::new();
         response.read_to_end(&mut crt_der)?;
 
-        //let s = String::from_utf8_lossy(&crt_der);
-        //info!("[---]result: \n{:?}", s);
+        // 打印证书...
+        let cert_data = String::from_utf8_lossy(&crt_der);
+        info!("[###]签发域名证书: \n{}", cert_data);
 
+        // 读取证书数据...
         //let cert = X509::from_der(&crt_der)?;
         let cert = X509::from_pem(&crt_der)?;
 
         info!("[域名证书签发成功]........................................................................................");
 
-        Ok(AcmeSignedCertificate { cert: cert, csr: acme_certificate_signer.csr.unwrap(), private_key: acme_certificate_signer.private_key.unwrap() })
+        Ok(AcmeSignedCertificate { cert, csr: acme_certificate_signer.csr.unwrap(), private_key: acme_certificate_signer.private_key.unwrap() })
     }
 }
 
@@ -1338,6 +1256,108 @@ impl AcmeOrderCreator {
             identifiers: acme_order_response.identifiers,
             order_auth_list: Vec::<AcmeOrderAuthResponse>::new(),
         })
+    }
+}
+
+///// Identifier authorization object.
+//pub struct AcmeOrderAuthorizationChallengeList(pub Vec<AcmeOrderAuthorizationChallenge>);
+//
+//impl AcmeOrderAuthorizationChallengeList {
+//    /// Gets a challenge.
+//    ///
+//    /// Pattern is used in `starts_with` for type comparison.
+//    pub fn get_challenge(&self, pattern: &str) -> Option<&AcmeOrderAuthorizationChallenge> {
+//        for challenge in &self.0 {
+//            if challenge.types().starts_with(pattern) {
+//                return Some(challenge);
+//            }
+//        }
+//        None
+//    }
+//
+//    /// Gets http challenge
+//    pub fn get_http_challenge(&self) -> Option<&AcmeOrderAuthorizationChallenge> {
+//        self.get_challenge("http")
+//    }
+//
+//    /// Gets dns challenge
+//    pub fn get_dns_challenge(&self) -> Option<&AcmeOrderAuthorizationChallenge> {
+//        self.get_challenge("dns")
+//    }
+//
+//    /// Gets tls-sni challenge
+//    pub fn get_tls_sni_challenge(&self) -> Option<&AcmeOrderAuthorizationChallenge> {
+//        self.get_challenge("tls-sni")
+//    }
+//
+//    /// Gets all dns challenge
+//    pub fn get_dns_challenges(&self) -> Option<&Vec<AcmeOrderAuthorizationChallenge>> {
+//        Some(&self.0)
+//    }
+//}
+
+// AcmeOrderAuthorizationChallenge 挑战 - A verification challenge...
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct AcmeOrderAuthorizationChallenge {
+    /// Type of verification challenge. Usually `http-01`, `dns-01` for letsencrypt.
+    //r#type: String,
+    #[serde(rename = "type")]
+    pub types: String,
+    pub status: String,
+    /// URL to trigger challenge.
+    pub url: String,
+    /// AcmeOrderAuthorizationChallenge token.
+    pub token: String,
+    pub wildcard: Option<bool>,
+    #[serde(rename = "validationRecord")]
+    pub validation_record: Option<Vec<AcmeOrderAuthorizationChallengeValidationRecord>>,
+    // Key authorization.
+    pub auth_key_token: Option<String>,
+    /// DNS authorization.
+    pub auth_dns_token: Option<String>,
+}
+
+// AcmeOrderAuthorizationChallenge 挑战...
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct AcmeOrderAuthorizationChallengeValidationRecord {
+    hostname: String,
+}
+
+impl AcmeOrderAuthorizationChallenge {
+    /// Saves key authorization into `{path}/.well-known/acme-challenge/{token}` for http challenge.
+    pub fn save_auth_key_token<P: AsRef<Path>>(&self, path: P) -> Result<()> {
+        use std::fs::create_dir_all;
+        let path = path.as_ref().join(".well-known").join("acme-challenge");
+        info!("Saving validation token into: {:?}", &path);
+        create_dir_all(&path)?;
+
+        let mut file = File::create(path.join(&self.token))?;
+        writeln!(&mut file, "{}", self.auth_key_token())?;
+
+        Ok(())
+    }
+
+    /// Gets DNS validation signature.
+    ///
+    /// This value is used for verification of domain over DNS. Signature must be saved
+    /// as a TXT record for `_acme_challenge.example.com`.
+    pub fn signature(&self) -> Result<String> {
+        Ok(b64(&hash(MessageDigest::sha256(), &self.auth_key_token().into_bytes())?))
+    }
+
+    /// Returns challenge type, usually `http-01` or `dns-01` for Let's Encrypt.
+    pub fn types(&self) -> &str {
+        &self.types
+    }
+
+    /// Returns challenge token
+    pub fn token(&self) -> &str {
+        &self.token
+    }
+
+    /// Returns auth_key_token
+    pub fn auth_key_token(&self) -> String {
+        self.auth_key_token.clone().unwrap()
     }
 }
 
@@ -1518,42 +1538,5 @@ impl AcmeSignedCertificate {
     /// Returns reference to private_key used to sign certificate
     pub fn private_key(&self) -> &PKey<openssl::pkey::Private> {
         &self.private_key
-    }
-}
-
-/// Identifier authorization object.
-pub struct AcmeOrderAuthChallengeList(pub Vec<AcmeOrderAuthChallenge>);
-
-impl AcmeOrderAuthChallengeList {
-    /// Gets a challenge.
-    ///
-    /// Pattern is used in `starts_with` for type comparison.
-    pub fn get_challenge(&self, pattern: &str) -> Option<&AcmeOrderAuthChallenge> {
-        for challenge in &self.0 {
-            if challenge.types().starts_with(pattern) {
-                return Some(challenge);
-            }
-        }
-        None
-    }
-
-    /// Gets http challenge
-    pub fn get_http_challenge(&self) -> Option<&AcmeOrderAuthChallenge> {
-        self.get_challenge("http")
-    }
-
-    /// Gets dns challenge
-    pub fn get_dns_challenge(&self) -> Option<&AcmeOrderAuthChallenge> {
-        self.get_challenge("dns")
-    }
-
-    /// Gets tls-sni challenge
-    pub fn get_tls_sni_challenge(&self) -> Option<&AcmeOrderAuthChallenge> {
-        self.get_challenge("tls-sni")
-    }
-
-    /// Gets all dns challenge
-    pub fn get_dns_challenges(&self) -> Option<&Vec<AcmeOrderAuthChallenge>> {
-        Some(&self.0)
     }
 }

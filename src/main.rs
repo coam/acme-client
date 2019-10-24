@@ -1,7 +1,7 @@
 /// Easy to use Let's Encrypt client to issue and renew TLS certs
 
 extern crate acme_client;
-extern crate indexmap;
+//extern crate indexmap;
 extern crate openssl;
 extern crate clap;
 extern crate foreign_types;
