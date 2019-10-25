@@ -317,7 +317,6 @@ pub struct AcmeAuthDirectory {
 
 // 打印请求日志数据...
 fn load_response(response: &mut reqwest::Response) -> Result<String> {
-
     // 读取到字符串
     let mut content = String::new();
     response.read_to_string(&mut content)?;
@@ -437,14 +436,31 @@ impl AcmeAuthDirectory {
     /// Makes a new post request to directory, signs payload with private_key.
     ///
     /// Returns status code and Value object from reply.
-    fn request<T: Serialize>(&self, private_key: &PKey<openssl::pkey::Private>, resource: &str, payload: T, kid: Option<String>) -> Result<(StatusCode, HeaderMap, Value)> {
-        // 格式转换
+    fn request<T: Serialize>(&self, private_key: &PKey<openssl::pkey::Private>, request_acme_resource: &str, payload: T, kid: Option<String>) -> Result<(StatusCode, HeaderMap, Value)> {
+
+        // Value格式转换...
         let payload_value = to_value(&payload)?;
 
-        trace!("[ACME接口请求参数->request()][resource: {}][kid: {:?}][payload_value: {}]", resource, kid, payload_value);
+        trace!("[ACME接口请求参数->request()][request_acme_resource: {}][kid: {:?}][payload_value: {}]", request_acme_resource, kid, payload_value);
 
         // 获取请求的 acme_resource_api
-        let acme_resource_api = self.get_acme_resource_url(resource).ok_or(format!("URL for resource: {} not found", resource))?;
+        let acme_resource_api = {
+            // 判断是接口类型
+            match request_acme_resource {
+                // Directory...
+                "keyChange" | "newAccount" | "newNonce" | "newOrder" | "revokeCert" => {
+                    self.get_acme_resource_url(request_acme_resource).ok_or(format!("URL for request_acme_resource: {} not found", request_acme_resource))?
+                }
+                // API 接口
+                _ => {
+                    // 仅支持挑战验证...
+                    if !request_acme_resource.starts_with((self.acme_api.clone() + "/acme/chall-v3").as_str()) {
+                        panic!("[仅支持挑战验证接口][不支持此接口类型][request_acme_resource: {}]", request_acme_resource)
+                    }
+                    request_acme_resource
+                }
+            }
+        };
 
         // 获取 jws
         let api_payload_jws = self.jws(acme_resource_api, private_key, payload_value, kid)?;
@@ -640,7 +656,7 @@ impl AcmeAccountData {
         let (status, response_headers, response_data) = {
             let mut map = HashMap::new();
             map.insert("certificate".to_owned(), b64(&cert.to_der()?));
-            self.directory().request(self.private_key(), "revoke-cert", map, None)?
+            self.directory().request(self.private_key(), "revokeCert", map, None)?
         };
 
         match status {
@@ -986,67 +1002,49 @@ impl AcmeOrderData {
 
         // 获取挑战签名...
         let challenge_token = challenge.signature().unwrap();
-
         debug!("validate info: [challenge_token: {:?}]", challenge_token);
 
-        // 验证参数...
+        // 请求参数...
         let payload = {
-            let map = {
-                let mut map: HashMap<String, Value> = HashMap::new();
-                map.insert("keyAuthorization".to_owned(), to_value(challenge_token)?);
-                map
-            };
-            acme_account.directory().jws(&challenge.url, acme_account.private_key(), map, Some(acme_account.account_url.clone()))?
+            let mut map: HashMap<String, Value> = HashMap::new();
+            map.insert("keyAuthorization".to_owned(), to_value(challenge_token)?);
+            map
         };
-
-        //debug!("[&challenge.url: {}][payload: {}]", &challenge.url, payload);
-
-        // 添加 [application/jose+json] 请求头
-        let mut headers = HeaderMap::new();
-        //headers.set(ContentType::json());
-        headers.insert(reqwest::header::CONTENT_TYPE, "application/jose+json".parse().unwrap());
-
-        // 请求ACME服务 - ...
-        let client = Client::new();
-        let mut response = client.post(&challenge.url)
-            .headers(headers)
-            //.body(&payload[..])
-            .body(to_string(&payload)?)
-            .send()?;
-
-        // 处理 ACME 响应数据...
-        let response_content = load_response(&mut response)?;
-
-        // 获取挑战验证请求响应数据...
-        let mut response_value: Value = from_str(&response_content)?;
+        let private_key = acme_account.private_key();
+        let (status, response_headers, response_data) = acme_account.directory().request(&private_key, challenge.url.as_str(), payload, Some(acme_account.account_url.clone()))?;
 
         // 判断响应状态码...
-        if response.status() != StatusCode::OK {
-            error!("[status: {}][response_value: {}]", response.status(), response_value);
-            return Err(ErrorKind::AcmeServerError(response_value).into());
+        if status != StatusCode::OK {
+            error!("[status: {}][response_data: {}]", status, response_data);
+            return Err(ErrorKind::AcmeServerError(response_data).into());
         }
 
+        // 获取挑战数据...
+        let mut response_value = response_data;
+        debug!("[MAIN][response.status(): {}][response_value: {}]", status, response_value);
+
+        // 循环验证挑战数据
         loop {
-            // 验证挑战状态
+            // 验证挑战状态...
             let status = response_value.as_object()
                 .and_then(|o| o.get("status"))
                 .and_then(|s| s.as_str())
                 .ok_or("Status not found")?
                 .to_owned();
 
-            debug!("[LOOP][status: {}][response_value: {}]", status, response_value);
-
             // 判断验证状态...
             if status == "pending" {
                 info!("[循环挑战验证状态] -> [challenge validate status: pending], trying again...");
 
                 // 请求ACME服务 - ...
+                let client = Client::new();
                 let mut response = client.get(&challenge.url).send()?;
 
                 // 处理 ACME 响应数据...
                 let response_content = load_response(&mut response)?;
 
                 response_value = from_str(&response_content)?;
+                debug!("[LOOP][response.status(): {}][response_value: {}]", response.status(), response_value);
 
                 warn!("[challenge validate status: pending]");
             } else if status == "valid" {
