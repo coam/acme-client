@@ -454,8 +454,10 @@ impl AcmeAuthDirectory {
                 // API 接口
                 _ => {
                     // 仅支持挑战验证...
-                    if !request_acme_resource.starts_with((self.acme_api.clone() + "/acme/chall-v3").as_str()) {
-                        panic!("[仅支持挑战验证接口][不支持此接口类型][request_acme_resource: {}]", request_acme_resource)
+                    let acme_challenge_api = self.acme_api.clone().replace("directory", "acme/chall-v3");
+                    let acme_finalize_api = self.acme_api.clone().replace("directory", "acme/finalize");
+                    if !request_acme_resource.starts_with(acme_challenge_api.as_str()) && !request_acme_resource.starts_with(acme_finalize_api.as_str()) {
+                        panic!("[不支持此接口类型][request_acme_resource: {}][acme_challenge_api: {}][acme_finalize_api: {}]", request_acme_resource, acme_challenge_api, acme_finalize_api)
                     }
                     request_acme_resource
                 }
@@ -479,6 +481,14 @@ impl AcmeAuthDirectory {
             //.body(&api_payload_jws[..])
             .body(to_string(&api_payload_jws)?)
             .send()?;
+
+        // 读取响应数据
+        //let body = response.text()?;
+        //info!("[---]response.body: \n{:?}", body);
+
+        // [How do you make a GET request in Rust?](https://stackoverflow.com/questions/43222429/how-do-you-make-a-get-request-in-rust)
+        // copy the response body directly to stdout
+        //std::io::copy(&mut res, &mut std::io::stdout())?;
 
         // 处理 ACME 响应数据...
         let response_content = load_response(&mut response)?;
@@ -790,6 +800,7 @@ pub struct AcmeOrderData {
     //auth_directory: AcmeAuthDirectory,
     pub account_url: String,
     pub order_url: String,
+    pub order_status: String,
     pub finalize_url: String,
     pub certificate_url: Option<String>,
     //private_key: PKey<openssl::pkey::Private>,
@@ -1048,7 +1059,7 @@ impl AcmeOrderData {
 
                 warn!("[challenge validate status: pending]");
             } else if status == "valid" {
-                info!("[循环挑战验证状态] -> [challenge validate status: valid], trying next...");
+                info!("[循环挑战验证状态] -> [challenge validate status: valid], trying next challenge...");
                 return Ok(());
             } else if status == "invalid" {
                 error!("[循环挑战验证状态] -> [challenge validate status: invalid], trying ended!");
@@ -1066,57 +1077,20 @@ impl AcmeOrderData {
         // 获取请求的url
         let finalize_url = &self.finalize_url;
 
+        // 请求参数...
         // request finalize order...
-        let mut map = HashMap::new();
-        map.insert("csr".to_owned(), b64(&acme_certificate_signer.csr.as_ref().unwrap().to_der()?));
-
-        // 设置载荷...
-        let payload = {
-            acme_account.directory().jws(finalize_url, acme_account.private_key(), map.clone(), Some(acme_account.account_url.clone()))?
-        };
-
-        //debug!("[finalize_url: {}][payload: {}]", finalize_url, payload);
-
-        // 添加 [application/jose+json] 请求头
-        let mut headers = HeaderMap::new();
-        //headers.set(ContentType::json());
-        headers.insert(reqwest::header::CONTENT_TYPE, "application/jose+json".parse().unwrap());
-
-        // 请求ACME服务 - 完结确认订单...
-        let client = Client::new();
-        //let jws = acme_certificate_signer.account.directory().jws(finalize_url, acme_certificate_signer.account.private_key(), map, Some(acme_certificate_signer.account.account_url.clone()))?
-        let mut response = client.post(finalize_url)
-            .headers(headers)
-            //.body(&jws[..])
-            //.body(jws)
-            .body(to_string(&payload)?)
-            .send()?;
-
-        // 处理 ACME 响应数据...
-        let response_content = load_response(&mut response)?;
-
-        //trace!("[#][response.status(): {:?}] response.headers():\n{:?}", response.status(), response.headers());
-        //trace!("[#]response: \n{:?}", response);
-
-        // 读取响应数据
-        //let body = response.text()?;
-        //info!("[---]response.body: \n{:?}", body);
-
-        // [How do you make a GET request in Rust?](https://stackoverflow.com/questions/43222429/how-do-you-make-a-get-request-in-rust)
-        // copy the response body directly to stdout
-        //std::io::copy(&mut res, &mut std::io::stdout())?;
+        let mut payload = HashMap::new();
+        payload.insert("csr".to_owned(), b64(&acme_certificate_signer.csr.as_ref().unwrap().to_der()?));
+        let private_key = acme_account.private_key();
+        let (status, response_headers, response_data) = acme_account.directory().request(&private_key, finalize_url.as_str(), payload, Some(acme_account.account_url.clone()))?;
 
         //let acme_order_response: AcmeOrderResponse = response.json()?;
-        let acme_order_response: AcmeOrderResponse = from_str(&response_content)?;
+        let acme_order_response: AcmeOrderResponse = from_value(response_data)?;
 
         // 判断是否经过验证...
         if acme_order_response.status != "valid" {
             panic!("订单未验证通过!");
         }
-
-        // [How do you make a GET request in Rust?](https://stackoverflow.com/questions/43222429/how-do-you-make-a-get-request-in-rust)
-        // copy the response body directly to stdout
-        //std::io::copy(&mut res, &mut std::io::stdout())?;
 
         // 验证是否有签发证书地址
         if let None = acme_order_response.certificate {
@@ -1248,11 +1222,12 @@ impl AcmeOrderCreator {
         Ok(AcmeOrderData {
             account_url: account_url.clone(),
             order_url: order_url.to_string(),
+            order_status: acme_order_response.status,
             finalize_url: acme_order_response.finalize,
-            certificate_url: None,
             authorizations: acme_order_response.authorizations,
             identifiers: acme_order_response.identifiers,
             order_auth_list: Vec::<AcmeOrderAuthResponse>::new(),
+            certificate_url: None,
         })
     }
 }
