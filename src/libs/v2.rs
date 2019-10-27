@@ -426,7 +426,7 @@ impl AcmeAuthDirectory {
             .map(|nonce| nonce.to_string());
 
         // 处理 ACME 响应数据...
-        let response_content = load_response(&mut response)?;
+        let _response_content = load_response(&mut response)?;
 
         trace!("[获取请求凭证->get_nonce()][nonce: {:?}]", nonce);
 
@@ -663,7 +663,7 @@ impl AcmeAccountData {
 
     /// Revokes a signed certificate
     pub fn revoke_certificate(&self, cert: &X509) -> Result<()> {
-        let (status, response_headers, response_data) = {
+        let (status, _response_headers, response_data) = {
             let mut map = HashMap::new();
             map.insert("certificate".to_owned(), b64(&cert.to_der()?));
             self.directory().request(self.private_key(), "revokeCert", map, None)?
@@ -837,7 +837,7 @@ impl AcmeOrderData {
             info!("[账户订单域名授权验证挑战方案]response.acme_order_auth_response: \n{:?}", acme_order_auth_response);
 
             // 依次读取授权挑战数据
-            let order_auth_identifier = acme_order_auth_response.identifier.clone();
+            //let order_auth_identifier = acme_order_auth_response.identifier.clone();
             let order_auth_challenges = acme_order_auth_response.challenges.clone();
             //debug!("[####] order_auth_identifier: {:?}", order_auth_identifier);
             //debug!("[####] order_auth_challenges: {:?}", order_auth_challenges);
@@ -959,11 +959,11 @@ impl AcmeOrderData {
             }
 
             // 获取挑战签名...
-            let token = order_auth_challenge.token.clone();
-            let types = order_auth_challenge.types.clone();
-            let url = order_auth_challenge.url.clone();
-            let auth_dns_token = order_auth_challenge.auth_dns_token.clone().unwrap();
-            let auth_key_token = order_auth_challenge.auth_key_token.clone().unwrap();
+            //let token = order_auth_challenge.token.clone();
+            //let types = order_auth_challenge.types.clone();
+            //let url = order_auth_challenge.url.clone();
+            //let auth_dns_token = order_auth_challenge.auth_dns_token.clone().unwrap();
+            //let auth_key_token = order_auth_challenge.auth_key_token.clone().unwrap();
 
             //// 延时计数...
             //let mut try_ts = 0;
@@ -1022,7 +1022,7 @@ impl AcmeOrderData {
             map
         };
         let private_key = acme_account.private_key();
-        let (status, response_headers, response_data) = acme_account.directory().request(&private_key, challenge.url.as_str(), payload, Some(acme_account.account_url.clone()))?;
+        let (status, _response_headers, response_data) = acme_account.directory().request(&private_key, challenge.url.as_str(), payload, Some(acme_account.account_url.clone()))?;
 
         // 判断响应状态码...
         if status != StatusCode::OK {
@@ -1082,7 +1082,7 @@ impl AcmeOrderData {
         let mut payload = HashMap::new();
         payload.insert("csr".to_owned(), b64(&acme_certificate_signer.csr.as_ref().unwrap().to_der()?));
         let private_key = acme_account.private_key();
-        let (status, response_headers, response_data) = acme_account.directory().request(&private_key, finalize_url.as_str(), payload, Some(acme_account.account_url.clone()))?;
+        let (_status, _response_headers, response_data) = acme_account.directory().request(&private_key, finalize_url.as_str(), payload, Some(acme_account.account_url.clone()))?;
 
         //let acme_order_response: AcmeOrderResponse = response.json()?;
         let acme_order_response: AcmeOrderResponse = from_value(response_data)?;

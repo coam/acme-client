@@ -5,7 +5,7 @@ extern crate log;
 //extern crate pretty_env_logger;
 #[macro_use]
 extern crate error_chain;
-#[macro_use]
+//#[macro_use]
 extern crate hyper;
 extern crate reqwest;
 //extern crate serde;
@@ -23,8 +23,8 @@ extern crate serde_json;
 
 pub mod libs;
 
-use libs::helper::{gen_key, b64, read_private_key, gen_csr};
-use libs::error::{Result, ErrorKind};
+//use libs::helper::{gen_key, b64, read_private_key, gen_csr};
+//use libs::error::{Result, ErrorKind};
 
 ///// Error and result types.
 //pub mod error {
