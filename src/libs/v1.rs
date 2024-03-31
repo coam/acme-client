@@ -279,7 +279,7 @@ use openssl::hash::{hash, MessageDigest};
 use openssl::pkey::PKey;
 use openssl::x509::{X509, X509Req};
 
-use reqwest::{Client, StatusCode};
+use reqwest::{blocking::Client, StatusCode};
 
 use libs::helper::{gen_key, b64, read_private_key, gen_csr};
 use libs::error::{Result, ErrorKind};

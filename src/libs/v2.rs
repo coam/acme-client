@@ -281,7 +281,7 @@ use openssl::pkey::PKey;
 use openssl::x509::{X509, X509Req};
 
 // reqwest
-use reqwest::{Client, StatusCode};
+use reqwest::{blocking::Client, StatusCode};
 use reqwest::header::HeaderMap;
 
 // serde...
@@ -316,7 +316,7 @@ pub struct AcmeAuthDirectory {
 }
 
 // 打印请求日志数据...
-fn load_response(response: &mut reqwest::Response) -> Result<String> {
+fn load_response(response: &mut reqwest::blocking::Response) -> Result<String> {
     // 读取到字符串
     let mut content = String::new();
     response.read_to_string(&mut content)?;
