@@ -1,10 +1,9 @@
 /// Easy to use Let's Encrypt client to issue and renew TLS certs
-
 extern crate acme_client;
 //extern crate indexmap;
-extern crate openssl;
 extern crate clap;
 extern crate foreign_types;
+extern crate openssl;
 extern crate openssl_sys;
 
 #[macro_use]
@@ -15,12 +14,12 @@ extern crate env_logger;
 // 设置环境配置...
 use std::env;
 
+use acme_client::libs::error::Result;
+use acme_client::libs::v1;
+use clap::{App, Arg, ArgMatches, SubCommand};
+use std::collections::HashSet;
 use std::io::{self, Write};
 use std::path::Path;
-use std::collections::HashSet;
-use acme_client::libs::v1;
-use acme_client::libs::error::Result;
-use clap::{Arg, App, SubCommand, ArgMatches};
 
 use log::Level;
 
@@ -28,136 +27,190 @@ fn main() {
     let matches = App::new(env!("CARGO_PKG_NAME"))
         .version(env!("CARGO_PKG_VERSION"))
         .about(env!("CARGO_PKG_DESCRIPTION"))
-        .usage("acme-client sign -D example.org -P /var/www -k domain.key -o domain.crt\
-                \n    acme-client revoke -K user_or_domain.key -C signed.crt")
-        .subcommand(SubCommand::with_name("sign")
-            .about("Signs a certificate")
-            .display_order(1)
-            .arg(Arg::with_name("DIRECTORY")
-                .help("Set ACME directory URL")
-                .short("A")
-                .long("directory")
-                .default_value(acme_client::libs::v1::LETS_ENCRYPT_DIRECTORY_URL)
-                .takes_value(true)
-                .display_order(1))
-            .arg(Arg::with_name("USER_KEY_PATH")
-                .help("Path to load user private key to use it in account registration. \
-                      This is optional and acme-client will generate one if it's not supplied.")
-                .long("user-key")
-                .short("U")
-                .takes_value(true)
-                .display_order(4))
-            .arg(Arg::with_name("DOMAIN_KEY_PATH")
-                .help("Path to load private domain key. This is optional and acme-client will \
-                      generate one if it's not supplied.")
-                .short("K")
-                .long("domain-key")
-                .takes_value(true))
-            .arg(Arg::with_name("DOMAIN")
-                .help("Domain name to obtain certificate. You can use more than one domain name.")
-                .short("D")
-                .long("domain")
-                .multiple(true)
-                .takes_value(true)
-                .display_order(3))
-            .arg(Arg::with_name("PUBLIC_DIR")
-                .help("Directory to save ACME simple HTTP challenge. This option is required \
-                      unless --dns option is being used.")
-                .short("P")
-                .long("public-dir")
-                .takes_value(true)
-                .display_order(3))
-            .arg(Arg::with_name("EMAIL")
-                .help("Contact email address (optional).")
-                .short("E")
-                .long("email")
-                .takes_value(true))
-            .arg(Arg::with_name("DOMAIN_CSR")
-                .help("Path to load domain certificate signing request. \
+        .usage(
+            "acme-client sign -D example.org -P /var/www -k domain.key -o domain.crt\
+                \n    acme-client revoke -K user_or_domain.key -C signed.crt",
+        )
+        .subcommand(
+            SubCommand::with_name("sign")
+                .about("Signs a certificate")
+                .display_order(1)
+                .arg(
+                    Arg::with_name("DIRECTORY")
+                        .help("Set ACME directory URL")
+                        .short("A")
+                        .long("directory")
+                        .default_value(acme_client::libs::v1::LETS_ENCRYPT_DIRECTORY_URL)
+                        .takes_value(true)
+                        .display_order(1),
+                )
+                .arg(
+                    Arg::with_name("USER_KEY_PATH")
+                        .help(
+                            "Path to load user private key to use it in account registration. \
+                      This is optional and acme-client will generate one if it's not supplied.",
+                        )
+                        .long("user-key")
+                        .short("U")
+                        .takes_value(true)
+                        .display_order(4),
+                )
+                .arg(
+                    Arg::with_name("DOMAIN_KEY_PATH")
+                        .help(
+                            "Path to load private domain key. This is optional and acme-client will \
+                      generate one if it's not supplied.",
+                        )
+                        .short("K")
+                        .long("domain-key")
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("DOMAIN")
+                        .help("Domain name to obtain certificate. You can use more than one domain name.")
+                        .short("D")
+                        .long("domain")
+                        .multiple(true)
+                        .takes_value(true)
+                        .display_order(3),
+                )
+                .arg(
+                    Arg::with_name("PUBLIC_DIR")
+                        .help(
+                            "Directory to save ACME simple HTTP challenge. This option is required \
+                      unless --dns option is being used.",
+                        )
+                        .short("P")
+                        .long("public-dir")
+                        .takes_value(true)
+                        .display_order(3),
+                )
+                .arg(
+                    Arg::with_name("EMAIL")
+                        .help("Contact email address (optional).")
+                        .short("E")
+                        .long("email")
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("DOMAIN_CSR")
+                        .help(
+                            "Path to load domain certificate signing request. \
                       acme-client can also use CSR to get domain names. \
-                      This is optional and acme-client will generate one if it's not supplied.")
-                .short("C")
-                .long("csr")
-                .alias("domain-csr")
-                .takes_value(true))
-            .arg(Arg::with_name("SAVE_USER_KEY")
-                .help("Path to save private user key.")
-                .long("save-user-key")
-                .short("u")
-                .takes_value(true))
-            .arg(Arg::with_name("SAVE_DOMAIN_KEY")
-                .help("Path to save domain private key generated by acme-client.")
-                .short("k")
-                .long("save-domain-key")
-                .takes_value(true))
-            .arg(Arg::with_name("SAVE_DOMAIN_CSR")
-                .help("Path to save domain certificate signing request generated by acme-client.")
-                .long("save-csr")
-                .short("r")
-                .takes_value(true))
-            .arg(Arg::with_name("SAVE_SIGNED_CERTIFICATE")
-                .help("Path to save signed certificate. Default is STDOUT.")
-                .short("o")
-                .long("save-crt")
-                .takes_value(true))
-            .arg(Arg::with_name("SAVE_INTERMEDIATE_CERTIFICATE")
-                .help("Path to save intermediate certificate.")
-                .short("i")
-                .long("save-intermediate-crt")
-                .takes_value(true))
-            .arg(Arg::with_name("SAVE_CHAINED_CERTIFICATE")
-                .help("Chain signed certificate with Let's Encrypt Authority X3 \
-                       (IdenTrust cross-signed) intermediate certificate and save to given path.")
-                .short("c")
-                .long("save-chained-crt")
-                .takes_value(true))
-            .arg(Arg::with_name("DNS_CHALLENGE")
-                .help("Use DNS challenge instead of HTTP. This option requires user \
-                        to generate a TXT record for domain.")
-                .short("d")
-                .long("dns")
-                .takes_value(false)))
-        .subcommand(SubCommand::with_name("revoke")
-            .about("Revokes a signed certificate")
-            .display_order(2)
-            .arg(Arg::with_name("DIRECTORY")
-                .help("Set a acme-server directory URL")
-                .short("A")
-                .long("directory")
-                .default_value(acme_client::libs::v1::LETS_ENCRYPT_DIRECTORY_URL)
-                .takes_value(true))
-            .arg(Arg::with_name("USER_KEY")
-                .help("User or domain private key path.")
-                .long("user-key")
-                .short("K")
-                .required(true)
-                .takes_value(true))
-            .arg(Arg::with_name("SIGNED_CRT")
-                .help("Path to signed domain certificate to revoke.")
-                .long("signed-crt")
-                .short("C")
-                .required(true)
-                .takes_value(true)))
-        .subcommand(SubCommand::with_name("genkey")
-            .about("Generates a 2048 bit RSA private key"))
-        .subcommand(SubCommand::with_name("gencsr")
-            .arg(Arg::with_name("DOMAIN_KEY")
-                .help("Domain private key path.")
-                .long("key")
-                .short("K")
-                .required(true)
-                .takes_value(true))
-            .arg(Arg::with_name("DOMAIN")
-                .help("Domain name. You can specify more than one domain name.")
-                .last(true)
-                .required(true)
-                .multiple(true)
-                .takes_value(true))
-            .about("Generates a certificate signing request from domain names"))
-        .arg(Arg::with_name("verbose")
-            .help("Show verbose output")
-            .short("v")
-            .multiple(true))
+                      This is optional and acme-client will generate one if it's not supplied.",
+                        )
+                        .short("C")
+                        .long("csr")
+                        .alias("domain-csr")
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("SAVE_USER_KEY")
+                        .help("Path to save private user key.")
+                        .long("save-user-key")
+                        .short("u")
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("SAVE_DOMAIN_KEY")
+                        .help("Path to save domain private key generated by acme-client.")
+                        .short("k")
+                        .long("save-domain-key")
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("SAVE_DOMAIN_CSR")
+                        .help("Path to save domain certificate signing request generated by acme-client.")
+                        .long("save-csr")
+                        .short("r")
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("SAVE_SIGNED_CERTIFICATE")
+                        .help("Path to save signed certificate. Default is STDOUT.")
+                        .short("o")
+                        .long("save-crt")
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("SAVE_INTERMEDIATE_CERTIFICATE")
+                        .help("Path to save intermediate certificate.")
+                        .short("i")
+                        .long("save-intermediate-crt")
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("SAVE_CHAINED_CERTIFICATE")
+                        .help(
+                            "Chain signed certificate with Let's Encrypt Authority X3 \
+                       (IdenTrust cross-signed) intermediate certificate and save to given path.",
+                        )
+                        .short("c")
+                        .long("save-chained-crt")
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("DNS_CHALLENGE")
+                        .help(
+                            "Use DNS challenge instead of HTTP. This option requires user \
+                        to generate a TXT record for domain.",
+                        )
+                        .short("d")
+                        .long("dns")
+                        .takes_value(false),
+                ),
+        )
+        .subcommand(
+            SubCommand::with_name("revoke")
+                .about("Revokes a signed certificate")
+                .display_order(2)
+                .arg(
+                    Arg::with_name("DIRECTORY")
+                        .help("Set a acme-server directory URL")
+                        .short("A")
+                        .long("directory")
+                        .default_value(acme_client::libs::v1::LETS_ENCRYPT_DIRECTORY_URL)
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("USER_KEY")
+                        .help("User or domain private key path.")
+                        .long("user-key")
+                        .short("K")
+                        .required(true)
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("SIGNED_CRT")
+                        .help("Path to signed domain certificate to revoke.")
+                        .long("signed-crt")
+                        .short("C")
+                        .required(true)
+                        .takes_value(true),
+                ),
+        )
+        .subcommand(SubCommand::with_name("genkey").about("Generates a 2048 bit RSA private key"))
+        .subcommand(
+            SubCommand::with_name("gencsr")
+                .arg(
+                    Arg::with_name("DOMAIN_KEY")
+                        .help("Domain private key path.")
+                        .long("key")
+                        .short("K")
+                        .required(true)
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("DOMAIN")
+                        .help("Domain name. You can specify more than one domain name.")
+                        .last(true)
+                        .required(true)
+                        .multiple(true)
+                        .takes_value(true),
+                )
+                .about("Generates a certificate signing request from domain names"),
+        )
+        .arg(Arg::with_name("verbose").help("Show verbose output").short("v").multiple(true))
         .get_matches();
 
     // 设置日志等级...
@@ -195,7 +248,6 @@ fn main() {
         ::std::process::exit(1);
     }
 }
-
 
 //fn sign_certificate(matches: &ArgMatches) -> Result<()> {
 //    // get domain names from --domain-csr or --domain arguments
@@ -290,23 +342,23 @@ fn main() {
 //    Ok(())
 //}
 
-
 fn revoke_certificate(matches: &ArgMatches) -> Result<()> {
-    let directory = v1::Directory::from_url(matches.value_of("DIRECTORY")
-        .ok_or("v1::Directory URL not found")?)?;
-    let account = directory.account_registration()
-        .pkey_from_file(matches.value_of("USER_KEY")
-            .ok_or("You need to provide user \
+    let directory = v1::Directory::from_url(matches.value_of("DIRECTORY").ok_or("v1::Directory URL not found")?)?;
+    let account = directory
+        .account_registration()
+        .pkey_from_file(matches.value_of("USER_KEY").ok_or(
+            "You need to provide user \
                                    or domain private key used \
-                                   to sign certificate.")?)?
+                                   to sign certificate.",
+        )?)?
         .register()?;
-    account.revoke_certificate_from_file(matches.value_of("SIGNED_CRT")
-        .ok_or("You need to provide \
+    account.revoke_certificate_from_file(matches.value_of("SIGNED_CRT").ok_or(
+        "You need to provide \
                                                     a signed certificate to \
-                                                    revoke.")?)?;
+                                                    revoke.",
+    )?)?;
     Ok(())
 }
-
 
 fn init_logger(level: u64) {
     let level = match level {
@@ -318,7 +370,6 @@ fn init_logger(level: u64) {
     builder.parse_filters(&::std::env::var("RUST_LOG").unwrap_or_else(|_| level.to_owned()));
     let _ = builder.init();
 }
-
 
 //fn names_from_csr<P: AsRef<Path>>(csr_path: P) -> Result<HashSet<String>> {
 //    use std::fs::File;
@@ -383,7 +434,6 @@ fn init_logger(level: u64) {
 //    Ok(names)
 //}
 
-
 fn parse_asn1_octet_str(s: &[u8]) -> Vec<String> {
     let mut iter = s.split(|n| *n == 130);
     let mut names = Vec::new();
@@ -398,20 +448,15 @@ fn parse_asn1_octet_str(s: &[u8]) -> Vec<String> {
     names
 }
 
-
 fn gen_key() -> Result<()> {
     let key = acme_client::libs::helper::gen_key()?;
     io::stdout().write_all(&key.private_key_to_pem_pkcs8()?)?;
     Ok(())
 }
 
-
 fn gen_csr(matches: &ArgMatches) -> Result<()> {
-    let pkey = acme_client::libs::helper::read_private_key(matches.value_of("DOMAIN_KEY")
-        .ok_or("You need to provide private domain key with --key option")?)?;
-    let names: Vec<&str> = matches.values_of("DOMAIN")
-        .ok_or("You need to provide at least one domain name")?
-        .collect();
+    let pkey = acme_client::libs::helper::read_private_key(matches.value_of("DOMAIN_KEY").ok_or("You need to provide private domain key with --key option")?)?;
+    let names: Vec<&str> = matches.values_of("DOMAIN").ok_or("You need to provide at least one domain name")?.collect();
     let csr = acme_client::libs::helper::gen_csr(&pkey, &names)?;
     io::stdout().write_all(&csr.to_pem()?)?;
     Ok(())

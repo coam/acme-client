@@ -1,33 +1,32 @@
-use std::io;
-use openssl;
 use hyper;
+use openssl;
 use reqwest;
 use serde_json;
+use std::io;
 
 error_chain! {
-        types {
-            Error, ErrorKind, ChainErr, Result;
-        }
-
-        links {
-        }
-
-        foreign_links {
-            OpenSslErrorStack(openssl::error::ErrorStack);
-            IoError(io::Error);
-            HyperError(hyper::Error);
-            ReqwestError(reqwest::Error);
-            ValueParserError(serde_json::Error);
-        }
-
-        errors {
-            AcmeServerError(resp: serde_json::Value) {
-                description("Acme server error")
-                    display("Acme server error: {}", acme_server_error_description(resp))
-            }
-        }
+    types {
+        Error, ErrorKind, ChainErr, Result;
     }
 
+    links {
+    }
+
+    foreign_links {
+        OpenSslErrorStack(openssl::error::ErrorStack);
+        IoError(io::Error);
+        HyperError(hyper::Error);
+        ReqwestError(reqwest::Error);
+        ValueParserError(serde_json::Error);
+    }
+
+    errors {
+        AcmeServerError(resp: serde_json::Value) {
+            description("Acme server error")
+                display("Acme server error: {}", acme_server_error_description(resp))
+        }
+    }
+}
 
 fn acme_server_error_description(resp: &serde_json::Value) -> String {
     if let Some(obj) = resp.as_object() {

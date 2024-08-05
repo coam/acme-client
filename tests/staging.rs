@@ -9,8 +9,8 @@ extern crate pretty_env_logger;
 
 use acme_client::libs;
 
-use libs::helper::{gen_key, b64, read_private_key, gen_csr};
-use libs::error::{Result, ErrorKind};
+use libs::error::{ErrorKind, Result};
+use libs::helper::{b64, gen_csr, gen_key, read_private_key};
 
 // 测试模块...
 pub mod testor;
@@ -70,7 +70,8 @@ fn test_v2_directory() {
 #[ignore]
 fn test_v2_account_registration() {
     let dir = libs::v2::AcmeAuthDirectory::from_url(LETS_ENCRYPT_V2_STAGING_DIRECTORY_URL).unwrap();
-    assert!(dir.account_registration()
+    assert!(dir
+        .account_registration()
         .email("example@example.org")
         .private_key_from_file("tests/data/user.key")
         .unwrap()
@@ -98,11 +99,7 @@ fn test_v1_directory() {
 fn test_v1_account_registration() {
     //let _ = env_logger::init();
     let dir = libs::v1::Directory::from_url(LETS_ENCRYPT_V1_STAGING_DIRECTORY_URL).unwrap();
-    assert!(dir.account_registration()
-        .pkey_from_file("tests/data/user.key")
-        .unwrap()
-        .register()
-        .is_ok());
+    assert!(dir.account_registration().pkey_from_file("tests/data/user.key").unwrap().register().is_ok());
 }
 
 #[test]
@@ -132,17 +129,10 @@ fn test_v1_sign_certificate() {
     use std::env;
     let _ = env_logger::init();
     let account = testor::v1::test_acc(LETS_ENCRYPT_V1_STAGING_DIRECTORY_URL).unwrap();
-    let auth = account
-        .authorization(&env::var("TEST_DOMAIN").unwrap())
-        .unwrap();
+    let auth = account.authorization(&env::var("TEST_DOMAIN").unwrap()).unwrap();
     let http_challenge = auth.get_http_challenge().unwrap();
-    assert!(http_challenge
-        .save_key_authorization(&env::var("TEST_PUBLIC_DIR").unwrap())
-        .is_ok());
+    assert!(http_challenge.save_key_authorization(&env::var("TEST_PUBLIC_DIR").unwrap()).is_ok());
     assert!(http_challenge.validate().is_ok());
-    let cert = account
-        .certificate_signer(&[&env::var("TEST_DOMAIN").unwrap()])
-        .sign_certificate()
-        .unwrap();
+    let cert = account.certificate_signer(&[&env::var("TEST_DOMAIN").unwrap()]).sign_certificate().unwrap();
     account.revoke_certificate(cert.cert()).unwrap();
 }

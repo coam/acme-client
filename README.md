@@ -10,25 +10,24 @@ revoke TLS certificates.
 
 **Contents**
 
-   * [CLI](#cli)
-      * [Installation](#installation)
-      * [Usage](#usage)
-         * [Sign a certificate](#sign-a-certificate)
-         * [Using your own keys and CSR](#using-your-own-keys-and-csr)
-         * [Using DNS validation](#using-dns-validation)
-         * [Revoking a signed certificate](#revoking-a-signed-certificate)
-      * [Options](#options)
-   * [Library](#library)
-      * [API overview](#api-overview)
-      * [Account registration](#account-registration)
-      * [Identifying ownership of domain name](#identifying-ownership-of-domain-name)
-         * [Identifier validation challenges](#identifier-validation-challenges)
+* [CLI](#cli)
+    * [Installation](#installation)
+    * [Usage](#usage)
+        * [Sign a certificate](#sign-a-certificate)
+        * [Using your own keys and CSR](#using-your-own-keys-and-csr)
+        * [Using DNS validation](#using-dns-validation)
+        * [Revoking a signed certificate](#revoking-a-signed-certificate)
+    * [Options](#options)
+* [Library](#library)
+    * [API overview](#api-overview)
+    * [Account registration](#account-registration)
+    * [Identifying ownership of domain name](#identifying-ownership-of-domain-name)
+        * [Identifier validation challenges](#identifier-validation-challenges)
             * [HTTP challenge](#http-challenge)
             * [DNS challenge:](#dns-challenge)
-      * [Signing a certificate](#signing-a-certificate)
-      * [Revoking a signed certificate](#revoking-a-signed-certificate-1)
-      * [References](#references)
-
+    * [Signing a certificate](#signing-a-certificate)
+    * [Revoking a signed certificate](#revoking-a-signed-certificate-1)
+    * [References](#references)
 
 ## Installation
 
@@ -36,7 +35,6 @@ By default acme-client crate comes with a handy CLI.
 You can install acme-client with: `cargo install acme-client` or you can
 download pre-built acme-client binary for Linux in the
 [releases](https://github.com/onur/acme-client/releases) page.
-
 
 ## Usage
 
@@ -47,7 +45,6 @@ any root access while running acme-client.
 
 acme-client is using simple HTTP validation to pass Let's Encrypt's DNS
 validation challenge. You need a working HTTP server to host the challenge file.
-
 
 ### Sign a certificate
 
@@ -62,8 +59,6 @@ If everything goes well, it will save the domain private key into `domain.key`
 and the signed certificate into `domain.crt`.
 
 You can also use the `--email` option to provide a contact adress on registration.
-
-
 
 ### Using your own keys and CSR
 
@@ -81,7 +76,6 @@ acme-client sign \
 This will not generate any key and it will use provided keys to sign
 the certificate. It will also get domain names from provided CSR file.
 
-
 ### Using DNS validation
 
 You can use `--dns` flag to trigger DNS validation instead of HTTP. This
@@ -95,7 +89,6 @@ Please create a TXT record for _acme-challenge.onur.im: fDdTmWl4RMuGqj9acJiTC13h
 Press enter to continue
 ```
 
-
 ### Revoking a signed certificate
 
 acme-client can also revoke a signed certificate. You need to use your
@@ -104,7 +97,6 @@ user key and a signed certificate to revoke.
 ```sh
 acme-client revoke --user-key user.key --signed-crt signed.crt
 ```
-
 
 ## Options
 
@@ -179,7 +171,6 @@ OPTIONS:
 There is also `genkey` and `gencsr` subcommands to generate RSA private key
 and CSR. You can use multiple `-v` flags for verbose output.
 
-
 # Library
 
 You can read entire API documentation in [docs.rs](https://docs.rs/acme-client).
@@ -197,7 +188,6 @@ By default `acme-client` will build CLI. You can disable this with:
 version = "0.5"
 default-features = false
 ```
-
 
 ## API overview
 
@@ -264,7 +254,6 @@ details.
 If you already registed with your own keys before, you still need to use
 [`register`](https://docs.rs/acme-client/0.5/acme_client/struct.AcmeAccountRegistration.html#method.register) method,
 in this case it will identify your user account instead of creating a new one.
-
 
 ## Identifying ownership of domain name
 
