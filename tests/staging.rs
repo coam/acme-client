@@ -1,4 +1,4 @@
-#![feature(plugin, decl_macro)]
+#![feature(decl_macro)]
 
 extern crate acme_client;
 extern crate env_logger;

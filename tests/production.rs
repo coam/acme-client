@@ -1,4 +1,4 @@
-#![feature(plugin, decl_macro)]
+#![feature(decl_macro)]
 
 mod testor;
 

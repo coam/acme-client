@@ -1,3 +1,3 @@
-#![feature(plugin, decl_macro)]
+#![feature(decl_macro)]
 
 pub mod testor;
