@@ -1188,7 +1188,6 @@ pub struct AcmeOrderResponse {
     pub identifiers: Vec<AcmeOrderIdentifier>,
 }
 
-// DNS 解析记录
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AcmeOrderIdentifier {
     #[serde(rename = "type")]
