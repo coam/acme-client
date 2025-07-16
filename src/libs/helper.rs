@@ -1,4 +1,5 @@
 use crate::libs::error::Result;
+use base64::Engine;
 use openssl;
 use openssl::hash::MessageDigest;
 use openssl::pkey::PKey;
@@ -22,7 +23,8 @@ pub fn gen_key() -> Result<PKey<openssl::pkey::Private>> {
 
 /// base64 Encoding with URL and Filename Safe Alphabet.
 pub fn b64(data: &[u8]) -> String {
-    ::base64::encode_config(data, ::base64::URL_SAFE_NO_PAD)
+    // ::base64::encode_config(data, ::base64::URL_SAFE_NO_PAD)
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(data)
 }
 
 /// Reads PKey from Path.
