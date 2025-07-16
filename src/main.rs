@@ -17,11 +17,8 @@ use std::env;
 use acme_client::libs::error::Result;
 use acme_client::libs::v1;
 use clap::{App, Arg, ArgMatches, SubCommand};
-use std::collections::HashSet;
 use std::io::{self, Write};
-use std::path::Path;
 
-use log::Level;
 
 fn main() {
     let matches = App::new(env!("CARGO_PKG_NAME"))
