@@ -19,7 +19,6 @@ use acme_client::libs::v1;
 use clap::{App, Arg, ArgMatches, SubCommand};
 use std::io::{self, Write};
 
-
 fn main() {
     let matches = App::new(env!("CARGO_PKG_NAME"))
         .version(env!("CARGO_PKG_VERSION"))

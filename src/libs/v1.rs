@@ -274,12 +274,12 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
 
-use openssl::hash::{hash, MessageDigest};
+use openssl::hash::{MessageDigest, hash};
 use openssl::pkey::PKey;
 use openssl::sign::Signer;
-use openssl::x509::{X509Req, X509};
+use openssl::x509::{X509, X509Req};
 
-use reqwest::{blocking::Client, StatusCode};
+use reqwest::{StatusCode, blocking::Client};
 
 use crate::libs::error::{ErrorKind, Result};
 use crate::libs::helper::{b64, gen_csr, gen_key, read_private_key};
@@ -288,7 +288,7 @@ use crate::libs::helper::{b64, gen_csr, gen_key, read_private_key};
 //use error::{Result, ErrorKind};
 
 use serde::Serialize;
-use serde_json::{from_str, to_string, to_value, Value};
+use serde_json::{Value, from_str, to_string, to_value};
 
 /// Default Let's Encrypt directory URL to configure client.
 pub const LETS_ENCRYPT_DIRECTORY_URL: &'static str = "https://acme-v01.api.letsencrypt.org/directory";
@@ -462,11 +462,7 @@ impl Directory {
         let res_json = {
             let mut res_content = String::new();
             res.read_to_string(&mut res_content)?;
-            if !res_content.is_empty() {
-                from_str(&res_content)?
-            } else {
-                to_value(true)?
-            }
+            if !res_content.is_empty() { from_str(&res_content)? } else { to_value(true)? }
         };
 
         Ok((res.status(), res_json))

@@ -69,13 +69,14 @@ fn test_v2_directory() {
 #[ignore]
 fn test_v2_account_registration() {
     let dir = libs::v2::AcmeAuthDirectory::from_url(LETS_ENCRYPT_V2_STAGING_DIRECTORY_URL).unwrap();
-    assert!(dir
-        .account_registration()
-        .email("example@example.org")
-        .private_key_from_file("tests/data/user.key")
-        .unwrap()
-        .register()
-        .is_ok());
+    assert!(
+        dir.account_registration()
+            .email("example@example.org")
+            .private_key_from_file("tests/data/user.key")
+            .unwrap()
+            .register()
+            .is_ok()
+    );
 }
 
 #[test]

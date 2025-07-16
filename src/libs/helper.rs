@@ -5,7 +5,7 @@ use openssl::pkey::PKey;
 use openssl::rsa::Rsa;
 use openssl::stack::Stack;
 use openssl::x509::extension::SubjectAlternativeName;
-use openssl::x509::{X509Name, X509Req, X509};
+use openssl::x509::{X509, X509Name, X509Req};
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;

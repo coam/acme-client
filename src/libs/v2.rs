@@ -275,18 +275,18 @@ use std::io::{Read, Write};
 use std::path::Path;
 
 // openssl
-use openssl::hash::{hash, MessageDigest};
+use openssl::hash::{MessageDigest, hash};
 use openssl::pkey::PKey;
 use openssl::sign::Signer;
-use openssl::x509::{X509Req, X509};
+use openssl::x509::{X509, X509Req};
 
 // reqwest
 use reqwest::header::HeaderMap;
-use reqwest::{blocking::Client, StatusCode};
+use reqwest::{StatusCode, blocking::Client};
 
 // serde...
 use serde::Serialize;
-use serde_json::{from_str, from_value, json, to_string, to_value, Value};
+use serde_json::{Value, from_str, from_value, json, to_string, to_value};
 
 // indexmap
 //use indexmap::IndexMap;
@@ -499,13 +499,7 @@ impl AcmeAuthDirectory {
         let response_content = load_response(&mut response)?;
 
         // ACME 接口请求响应数据
-        let response_data = {
-            if !response_content.is_empty() {
-                from_str(&response_content)?
-            } else {
-                to_value(true)?
-            }
-        };
+        let response_data = { if !response_content.is_empty() { from_str(&response_content)? } else { to_value(true)? } };
 
         // 响应头...
         let response_headers = response.headers();
