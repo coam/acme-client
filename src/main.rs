@@ -220,7 +220,7 @@ fn main() {
     //env::set_var("RUST_LOG", "coam_s=info");
     //env_logger::init_from_env(env_logger::Env::default().default_filter_or("info"));
     //env_logger::init_from_env("info");
-    env::set_var("RUST_LOG", "info");
+    // env::set_var("RUST_LOG", "info");
 
     //init_logger(matches.occurrences_of("verbose"));
     //env_logger::init();

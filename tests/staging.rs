@@ -9,7 +9,6 @@ extern crate pretty_env_logger;
 
 use acme_client::libs;
 
-use libs::error::{ErrorKind, Result};
 use libs::helper::{b64, gen_csr, gen_key, read_private_key};
 
 // 测试模块...
